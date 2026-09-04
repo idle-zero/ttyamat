@@ -1,14 +1,29 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+use iced::{Element, Theme, widget::text};
+
+#[derive(Default)]
+struct App;
+
+#[derive(Debug, Clone)]
+enum Message {}
+
+pub fn run() -> iced::Result {
+    iced::application(App::default, update, view)
+        .title("ttyamat")
+        .theme(theme)
+        .decorations(false)
+        .window_size((1000, 700))
+        .centered()
+        .run()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn theme(_: &App) -> Theme {
+    Theme::Dark
+}
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+fn update(_: &mut App, message: Message) {
+    match message {}
+}
+
+fn view(_: &App) -> Element<'_, Message> {
+    text("ttyamat terminal viewport").into()
 }

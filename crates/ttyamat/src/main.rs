@@ -1,3 +1,3 @@
 fn main() {
-    println!("Hello, world!");
+    ttyamat_ui::run().expect("failed to run ttyamat");
 }
