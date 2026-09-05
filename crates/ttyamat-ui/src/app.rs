@@ -1,11 +1,12 @@
-use iced::Fill;
 use iced::{Element, Theme, widget::column};
+use iced::{Fill, Subscription, Task, task, window};
 
 use crate::tab::{Tab, TabId};
 use crate::terminal_view;
 use crate::title_bar;
 
 struct App {
+    window_id: Option<window::Id>,
     tabs: Vec<Tab>,
     active_tab: TabId,
     hovered_tab: Option<TabId>,
@@ -40,13 +41,18 @@ impl App {
             active_tab: tabs[0].id,
             tabs,
             hovered_tab: None,
+            window_id: None,
         }
     }
 }
 
 #[derive(Debug, Clone)]
 enum Message {
-    Event(iced::Event),
+    Event {
+        window_id: window::Id,
+        event: iced::Event,
+        status: iced::event::Status,
+    },
     TitleBar(title_bar::Message),
     Terminal(terminal_view::Message),
 }
@@ -55,6 +61,7 @@ pub fn run() -> iced::Result {
     iced::application(App::new, update, view)
         .title("ttyamat")
         .theme(theme)
+        .subscription(subscription)
         .decorations(false)
         .window_size((1000, 700))
         .centered()
@@ -65,16 +72,32 @@ fn theme(_: &App) -> Theme {
     Theme::Dark
 }
 
-fn update(app: &mut App, message: Message) {
+fn update(app: &mut App, message: Message) -> Task<Message> {
     match message {
         Message::TitleBar(tb_message) => match tb_message {
-            title_bar::Message::MinimizeWindow => println!("minimize press"),
-            title_bar::Message::ToggleMaximize => println!("toggle maximize press"),
-            title_bar::Message::CloseWindow => println!("close press"),
+            title_bar::Message::MinimizeWindow => {
+                let Some(window_id) = app.window_id else {
+                    return Task::none();
+                };
+                window::minimize(window_id, true)
+            }
+            title_bar::Message::ToggleMaximize => {
+                let Some(window_id) = app.window_id else {
+                    return Task::none();
+                };
+                window::toggle_maximize(window_id)
+            }
+            title_bar::Message::CloseWindow => {
+                let Some(window_id) = app.window_id else {
+                    return Task::none();
+                };
+                window::close(window_id)
+            }
             title_bar::Message::TabPressed(id) => {
                 if app.tabs.iter().any(|tab| tab.id == id) {
                     app.active_tab = id;
                 }
+                Task::none()
             }
             title_bar::Message::TabHoverChanged { id, is_hovered } => {
                 if is_hovered {
@@ -82,11 +105,34 @@ fn update(app: &mut App, message: Message) {
                 } else if app.hovered_tab == Some(id) {
                     app.hovered_tab = None;
                 }
+                Task::none()
             }
-            title_bar::Message::TabClosePressed(id) => println!("tab close pressed {:?}", id),
+            title_bar::Message::TabClosePressed(id) => {
+                println!("tab close pressed {:?}", id);
+                Task::none()
+            }
         },
-        _ => println!("not implemented {:?}", message),
+        Message::Event {
+            window_id,
+            event,
+            status: _,
+        } => {
+            if let iced::Event::Window(window::Event::Opened { .. }) = event {
+                app.window_id = Some(window_id)
+            }
+            Task::none()
+        }
     }
+}
+
+fn subscription(_: &App) -> Subscription<Message> {
+    iced::event::listen_with(|event, status, window_id| {
+        Some(Message::Event {
+            window_id,
+            event,
+            status,
+        })
+    })
 }
 
 fn view(app: &App) -> Element<'_, Message> {
