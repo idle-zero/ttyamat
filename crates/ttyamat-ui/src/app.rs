@@ -1,6 +1,6 @@
 use iced::widget::{mouse_area, row, space, stack};
 use iced::{Element, Theme, widget::column};
-use iced::{Fill, Length, Subscription, Task, mouse, task, window};
+use iced::{Fill, Length, Subscription, Task, mouse, window};
 
 use crate::tab::{Tab, TabId};
 use crate::terminal_view;
@@ -13,39 +13,66 @@ struct App {
     tabs: Vec<Tab>,
     active_tab: TabId,
     hovered_tab: Option<TabId>,
+    next_tab_id: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CloseTabOutcome {
+    Closed,
+    CloseWindow,
+    NotFound,
 }
 
 impl App {
     fn new() -> Self {
-        let tabs = vec![
-            Tab {
-                id: TabId(1),
-                title: String::from("PowerShell"),
-            },
-            Tab {
-                id: TabId(2),
-                title: String::from("Command"),
-            },
-            Tab {
-                id: TabId(3),
-                title: String::from("Ubuntu"),
-            },
-            Tab {
-                id: TabId(4),
-                title: String::from("Rust"),
-            },
-            Tab {
-                id: TabId(5),
-                title: String::from("Server"),
-            },
-        ];
+        let new_tab = Tab {
+            id: TabId(1),
+            title: String::from("Command"),
+        };
 
         Self {
-            active_tab: tabs[0].id,
-            tabs,
+            active_tab: new_tab.id,
+            tabs: vec![new_tab],
             hovered_tab: None,
             window_id: None,
+            next_tab_id: 2,
         }
+    }
+
+    fn create_tab(&mut self) {
+        let id = TabId(self.next_tab_id);
+        self.next_tab_id += 1;
+
+        self.tabs.push(Tab {
+            id,
+            title: format!("Terminal {}", id.0),
+        });
+
+        self.active_tab = id;
+        self.hovered_tab = None;
+    }
+
+    fn close_tab(&mut self, id: TabId) -> CloseTabOutcome {
+        let Some(index) = self.tabs.iter().position(|tab| tab.id == id) else {
+            return CloseTabOutcome::NotFound;
+        };
+
+        if self.tabs.len() == 1 {
+            return CloseTabOutcome::CloseWindow;
+        }
+
+        let was_active = self.active_tab == id;
+        self.tabs.remove(index);
+
+        if self.hovered_tab == Some(id) {
+            self.hovered_tab = None;
+        }
+
+        if was_active {
+            let replacement_idx = index.min(self.tabs.len() - 1);
+            self.active_tab = self.tabs[replacement_idx].id
+        }
+        CloseTabOutcome::Closed
     }
 }
 
@@ -104,6 +131,19 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 };
                 window::drag(window_id)
             }
+            title_bar::Message::NewTabPressed => {
+                app.create_tab();
+                Task::none()
+            }
+            title_bar::Message::TabClosePressed(id) => match app.close_tab(id) {
+                CloseTabOutcome::CloseWindow => {
+                    let Some(window_id) = app.window_id else {
+                        return Task::none();
+                    };
+                    window::close(window_id)
+                }
+                CloseTabOutcome::Closed | CloseTabOutcome::NotFound => Task::none(),
+            },
             title_bar::Message::TabPressed(id) => {
                 if app.tabs.iter().any(|tab| tab.id == id) {
                     app.active_tab = id;
@@ -116,10 +156,6 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 } else if app.hovered_tab == Some(id) {
                     app.hovered_tab = None;
                 }
-                Task::none()
-            }
-            title_bar::Message::TabClosePressed(id) => {
-                println!("tab close pressed {:?}", id);
                 Task::none()
             }
         },

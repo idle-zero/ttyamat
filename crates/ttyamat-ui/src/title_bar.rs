@@ -11,6 +11,7 @@ pub(crate) enum Message {
     ToggleMaximize,
     CloseWindow,
     StartWindowDrag,
+    NewTabPressed,
     TabPressed(TabId),
     TabClosePressed(TabId),
     TabHoverChanged { id: TabId, is_hovered: bool },
@@ -26,6 +27,7 @@ const TAB_GROUP_LEFT_INSET: f32 = 10.0;
 const TAB_GROUP_RIGHT_INSET: f32 = 50.0;
 const TAB_SEPARATOR_WIDTH: f32 = 1.0;
 const TAB_SEPARATOR_HEIGHT: f32 = 16.0;
+const NEW_TAB_BUTTON_WIDTH: f32 = 36.0;
 
 pub(crate) fn view<'a>(
     tabs: &'a [Tab],
@@ -35,8 +37,12 @@ pub(crate) fn view<'a>(
     let tabs_region = responsive(move |size| {
         let separator_count = tabs.len().saturating_sub(1);
         let separators_width = separator_count as f32 * TAB_SEPARATOR_WIDTH;
-        let available_width =
-            (size.width - TAB_GROUP_LEFT_INSET - TAB_GROUP_RIGHT_INSET - separators_width).max(0.0);
+        let available_width = (size.width
+            - TAB_GROUP_LEFT_INSET
+            - TAB_GROUP_RIGHT_INSET
+            - NEW_TAB_BUTTON_WIDTH
+            - separators_width)
+            .max(0.0);
         let tab_width = match tabs.len() {
             0 => 0.0,
             count => (available_width / count as f32).min(TAB_MAX_WIDTH),
@@ -65,6 +71,7 @@ pub(crate) fn view<'a>(
                 });
 
         tabs_row
+            .push(new_tab_button())
             .push(drag_region(Fill))
             .push(drag_region(Length::Fixed(TAB_GROUP_RIGHT_INSET)))
             .width(Fill)
@@ -128,7 +135,7 @@ fn tab<'a>(tab: &'a Tab, is_active: bool, is_hovered: bool, width: f32) -> Eleme
         .width(TAB_CLOSE_BUTTON_SIZE)
         .height(TAB_CLOSE_BUTTON_SIZE)
         .padding(0)
-        .style(tab_close_button_style);
+        .style(tab_action_button_style);
     let close_slot = container(close_button)
         .width(TAB_CLOSE_SLOT_WIDTH)
         .height(TAB_HEIGHT)
@@ -157,6 +164,15 @@ fn tab<'a>(tab: &'a Tab, is_active: bool, is_hovered: bool, width: f32) -> Eleme
         .into()
 }
 
+fn new_tab_button() -> Element<'static, Message> {
+    button(centered_label("+", 20.0))
+        .on_press(Message::NewTabPressed)
+        .width(NEW_TAB_BUTTON_WIDTH)
+        .height(TAB_HEIGHT)
+        .padding(0)
+        .style(tab_action_button_style) // TODO here style
+        .into()
+}
 fn centered_label(label: &'static str, size: f32) -> Element<'static, Message> {
     container(text(label).size(size)).center(Fill).into()
 }
@@ -214,7 +230,7 @@ fn tab_background(is_active: bool, is_hovered: bool) -> Color {
     }
 }
 
-fn tab_close_button_style(_: &Theme, status: button::Status) -> button::Style {
+fn tab_action_button_style(_: &Theme, status: button::Status) -> button::Style {
     let background = matches!(status, button::Status::Hovered | button::Status::Pressed)
         .then_some(Background::Color(style::CONTROL_HOVER));
 
