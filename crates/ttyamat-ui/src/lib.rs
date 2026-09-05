@@ -1,4 +1,6 @@
 mod app;
+mod style;
+mod tab;
 mod terminal_view;
 mod title_bar;
 
