@@ -1,9 +1,12 @@
+use iced::widget::{mouse_area, row, space, stack};
 use iced::{Element, Theme, widget::column};
-use iced::{Fill, Subscription, Task, task, window};
+use iced::{Fill, Length, Subscription, Task, mouse, task, window};
 
 use crate::tab::{Tab, TabId};
 use crate::terminal_view;
 use crate::title_bar;
+
+const RESIZE_BORDER: f32 = 6.0;
 
 struct App {
     window_id: Option<window::Id>,
@@ -53,6 +56,7 @@ enum Message {
         event: iced::Event,
         status: iced::event::Status,
     },
+    StartWindowResize(window::Direction),
     TitleBar(title_bar::Message),
     Terminal(terminal_view::Message),
 }
@@ -63,6 +67,7 @@ pub fn run() -> iced::Result {
         .theme(theme)
         .subscription(subscription)
         .decorations(false)
+        .resizable(true)
         .window_size((1000, 700))
         .centered()
         .run()
@@ -128,6 +133,12 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+        Message::StartWindowResize(direction) => {
+            let Some(window_id) = app.window_id else {
+                return Task::none();
+            };
+            window::drag_resize(window_id, direction)
+        }
     }
 }
 
@@ -146,5 +157,96 @@ fn view(app: &App) -> Element<'_, Message> {
         title_bar::view(&app.tabs, app.active_tab, app.hovered_tab).map(Message::TitleBar);
     let terminal = terminal_view::view().map(Message::Terminal);
 
-    column![title_bar, terminal].width(Fill).height(Fill).into()
+    let content = column![title_bar, terminal].width(Fill).height(Fill);
+
+    stack![content, resize_handles()]
+        .width(Fill)
+        .height(Fill)
+        .into()
+}
+
+fn resize_handles() -> Element<'static, Message> {
+    let border = Length::Fixed(RESIZE_BORDER);
+
+    let north_west = resize_handle(
+        window::Direction::NorthWest,
+        border,
+        border,
+        mouse::Interaction::ResizingDiagonallyDown,
+    );
+
+    let north = resize_handle(
+        window::Direction::North,
+        Fill,
+        border,
+        mouse::Interaction::ResizingVertically,
+    );
+
+    let north_east = resize_handle(
+        window::Direction::NorthEast,
+        border,
+        border,
+        mouse::Interaction::ResizingDiagonallyUp,
+    );
+
+    let west = resize_handle(
+        window::Direction::West,
+        border,
+        Fill,
+        mouse::Interaction::ResizingHorizontally,
+    );
+
+    let east = resize_handle(
+        window::Direction::East,
+        border,
+        Fill,
+        mouse::Interaction::ResizingHorizontally,
+    );
+
+    let south_west = resize_handle(
+        window::Direction::SouthWest,
+        border,
+        border,
+        mouse::Interaction::ResizingDiagonallyUp,
+    );
+
+    let south = resize_handle(
+        window::Direction::South,
+        Fill,
+        border,
+        mouse::Interaction::ResizingVertically,
+    );
+
+    let south_east = resize_handle(
+        window::Direction::SouthEast,
+        border,
+        border,
+        mouse::Interaction::ResizingDiagonallyDown,
+    );
+
+    let top = row![north_west, north, north_east]
+        .width(Fill)
+        .height(border);
+
+    let center = row![west, space::Space::new().width(Fill).height(Fill), east]
+        .width(Fill)
+        .height(Fill);
+
+    let bottom = row![south_west, south, south_east]
+        .width(Fill)
+        .height(border);
+
+    column![top, center, bottom].width(Fill).height(Fill).into()
+}
+
+fn resize_handle(
+    direction: window::Direction,
+    width: Length,
+    height: Length,
+    interaction: mouse::Interaction,
+) -> Element<'static, Message> {
+    mouse_area(space::Space::new().width(width).height(height))
+        .on_press(Message::StartWindowResize(direction))
+        .interaction(interaction)
+        .into()
 }
