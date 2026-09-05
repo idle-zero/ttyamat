@@ -135,7 +135,7 @@ fn tab<'a>(tab: &'a Tab, is_active: bool, is_hovered: bool, width: f32) -> Eleme
         .width(TAB_CLOSE_BUTTON_SIZE)
         .height(TAB_CLOSE_BUTTON_SIZE)
         .padding(0)
-        .style(tab_close_button_style);
+        .style(tab_action_button_style);
     let close_slot = container(close_button)
         .width(TAB_CLOSE_SLOT_WIDTH)
         .height(TAB_HEIGHT)
@@ -170,7 +170,7 @@ fn new_tab_button() -> Element<'static, Message> {
         .width(NEW_TAB_BUTTON_WIDTH)
         .height(TAB_HEIGHT)
         .padding(0)
-        .style(tab_close_button_style) // TODO here style
+        .style(tab_action_button_style) // TODO here style
         .into()
 }
 fn centered_label(label: &'static str, size: f32) -> Element<'static, Message> {
@@ -230,7 +230,7 @@ fn tab_background(is_active: bool, is_hovered: bool) -> Color {
     }
 }
 
-fn tab_close_button_style(_: &Theme, status: button::Status) -> button::Style {
+fn tab_action_button_style(_: &Theme, status: button::Status) -> button::Style {
     let background = matches!(status, button::Status::Hovered | button::Status::Pressed)
         .then_some(Background::Color(style::CONTROL_HOVER));
 
