@@ -13,39 +13,36 @@ struct App {
     tabs: Vec<Tab>,
     active_tab: TabId,
     hovered_tab: Option<TabId>,
+    next_tab_id: u64,
 }
 
 impl App {
     fn new() -> Self {
-        let tabs = vec![
-            Tab {
-                id: TabId(1),
-                title: String::from("PowerShell"),
-            },
-            Tab {
-                id: TabId(2),
-                title: String::from("Command"),
-            },
-            Tab {
-                id: TabId(3),
-                title: String::from("Ubuntu"),
-            },
-            Tab {
-                id: TabId(4),
-                title: String::from("Rust"),
-            },
-            Tab {
-                id: TabId(5),
-                title: String::from("Server"),
-            },
-        ];
+        let new_tab = Tab {
+            id: TabId(1),
+            title: String::from("Command"),
+        };
 
         Self {
-            active_tab: tabs[0].id,
-            tabs,
+            active_tab: new_tab.id,
+            tabs: vec![new_tab],
             hovered_tab: None,
             window_id: None,
+            next_tab_id: 2,
         }
+    }
+
+    fn create_tab(&mut self) {
+        let id = TabId(self.next_tab_id);
+        self.next_tab_id += 1;
+
+        self.tabs.push(Tab {
+            id,
+            title: format!("Terminal {}", id.0),
+        });
+
+        self.active_tab = id;
+        self.hovered_tab = None;
     }
 }
 
@@ -103,6 +100,10 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                     return Task::none();
                 };
                 window::drag(window_id)
+            }
+            title_bar::Message::NewTabPressed => {
+                app.create_tab();
+                Task::none()
             }
             title_bar::Message::TabPressed(id) => {
                 if app.tabs.iter().any(|tab| tab.id == id) {
