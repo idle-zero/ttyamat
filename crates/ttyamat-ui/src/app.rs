@@ -93,6 +93,12 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 };
                 window::close(window_id)
             }
+            title_bar::Message::StartWindowDrag => {
+                let Some(window_id) = app.window_id else {
+                    return Task::none();
+                };
+                window::drag(window_id)
+            }
             title_bar::Message::TabPressed(id) => {
                 if app.tabs.iter().any(|tab| tab.id == id) {
                     app.active_tab = id;

@@ -10,6 +10,7 @@ pub(crate) enum Message {
     MinimizeWindow,
     ToggleMaximize,
     CloseWindow,
+    StartWindowDrag,
     TabPressed(TabId),
     TabClosePressed(TabId),
     TabHoverChanged { id: TabId, is_hovered: bool },
@@ -22,7 +23,7 @@ const CONTROL_WIDTH: f32 = 46.0;
 const TAB_CLOSE_SLOT_WIDTH: f32 = 40.0;
 const TAB_CLOSE_BUTTON_SIZE: f32 = 28.0;
 const TAB_GROUP_LEFT_INSET: f32 = 10.0;
-const TAB_GROUP_RIGHT_INSET: f32 = 10.0;
+const TAB_GROUP_RIGHT_INSET: f32 = 50.0;
 const TAB_SEPARATOR_WIDTH: f32 = 1.0;
 const TAB_SEPARATOR_HEIGHT: f32 = 16.0;
 
@@ -41,8 +42,7 @@ pub(crate) fn view<'a>(
             count => (available_width / count as f32).min(TAB_MAX_WIDTH),
         };
 
-        let leading_region: Element<'_, Message> =
-            space::horizontal().width(TAB_GROUP_LEFT_INSET).into();
+        let leading_region = drag_region(Length::Fixed(TAB_GROUP_LEFT_INSET));
 
         let tabs_row =
             tabs.iter()
@@ -65,8 +65,8 @@ pub(crate) fn view<'a>(
                 });
 
         tabs_row
-            .push(space::horizontal())
-            .push(space::horizontal().width(TAB_GROUP_RIGHT_INSET))
+            .push(drag_region(Fill))
+            .push(drag_region(Length::Fixed(TAB_GROUP_RIGHT_INSET)))
             .width(Fill)
             .height(TITLE_BAR_HEIGHT)
             .align_y(Bottom)
@@ -176,6 +176,13 @@ fn tab_separator(visible: bool) -> Element<'static, Message> {
         .width(TAB_SEPARATOR_WIDTH)
         .height(TAB_HEIGHT)
         .align_y(Center)
+        .into()
+}
+
+fn drag_region(width: Length) -> Element<'static, Message> {
+    mouse_area(space::horizontal().width(width).height(TITLE_BAR_HEIGHT))
+        .on_press(Message::StartWindowDrag)
+        .on_double_click(Message::ToggleMaximize)
         .into()
 }
 
