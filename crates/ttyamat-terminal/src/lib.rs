@@ -1,14 +1,7 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+mod event;
+mod session;
+mod size;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use event::TerminalEvent;
+pub use session::{TerminalSession, TerminalSessionError};
+pub use size::TerminalSize;
