@@ -2,7 +2,7 @@ use iced::futures::StreamExt;
 use iced::futures::channel::mpsc;
 use iced::widget::{mouse_area, row, space, stack};
 use iced::{Element, Theme, widget::column};
-use iced::{Fill, Length, Subscription, Task, mouse, window};
+use iced::{Fill, Length, Subscription, Task, keyboard, mouse, window};
 use ttyamat_terminal::{TerminalEvent, TerminalSession, TerminalSize};
 
 use crate::tab::{Tab, TabId};
@@ -28,6 +28,14 @@ enum CloseTabOutcome {
     NotFound,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApplicationShortcut {
+    New,
+    CloseActive,
+    SelectNext,
+    SelectPrevious,
+}
+
 #[derive(Debug, Clone)]
 enum Message {
     Event {
@@ -43,12 +51,17 @@ enum Message {
 
 struct App {
     window_id: Option<window::Id>,
+    window_focused: bool,
+    window_size: Option<iced::Size>,
+    scale_factor: f32,
     tabs: Vec<Tab>,
     active_tab: TabId,
     hovered_tab: Option<TabId>,
     next_tab_id: u64,
     terminal_event_sender: mpsc::UnboundedSender<SessionEvent>,
+    terminal_size: TerminalSize,
 }
+
 impl App {
     fn new() -> (Self, Task<Message>) {
         let (sender, receiver) = mpsc::unbounded();
@@ -59,8 +72,12 @@ impl App {
             tabs: Vec::new(),
             hovered_tab: None,
             window_id: None,
+            window_focused: false,
+            window_size: None,
+            scale_factor: 1.0,
             next_tab_id: 1,
             terminal_event_sender: sender,
+            terminal_size: initial_terminal_size(),
         };
         app.create_tab();
         (app, terminal_event_task)
@@ -70,7 +87,7 @@ impl App {
         let id = TabId(self.next_tab_id);
         let sender = self.terminal_event_sender.clone();
         let fallback_title = format!("Tab {}", id.0);
-        let size = initial_terminal_size();
+        let size = self.terminal_size;
 
         // TODO(error-reporting): Replace `expect` with graceful session-startup handling:
         // log `TerminalSessionError`, notify the user, and do not insert or activate a failed tab.
@@ -182,13 +199,37 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Event {
             window_id,
             event,
-            status: _,
-        } => {
-            if let iced::Event::Window(window::Event::Opened { .. }) = event {
-                app.window_id = Some(window_id)
+            status,
+        } => match event {
+            iced::Event::Keyboard(keyboard_event) => {
+                handle_keyboard_event(app, window_id, keyboard_event, status)
             }
-            Task::none()
-        }
+            iced::Event::Window(window_event) => match window_event {
+                window::Event::Opened { size, .. } => {
+                    app.window_size = Some(size);
+                    app.window_id = Some(window_id);
+                    Task::none()
+                }
+                window::Event::Resized(size) => {
+                    app.window_size = Some(size);
+                    Task::none()
+                }
+                window::Event::Rescaled(scale_factor) => {
+                    app.scale_factor = scale_factor;
+                    Task::none()
+                }
+                window::Event::Focused => {
+                    app.window_focused = true;
+                    Task::none()
+                }
+                window::Event::Unfocused => {
+                    app.window_focused = false;
+                    Task::none()
+                }
+                _ => Task::none(),
+            },
+            _ => Task::none(),
+        },
         Message::StartWindowResize(direction) => {
             let Some(window_id) = app.window_id else {
                 return Task::none();
@@ -354,4 +395,106 @@ fn initial_terminal_size() -> TerminalSize {
         INITIAL_CELL_HEIGHT,
     )
     .expect("initial terminal dimensions must be non-zero")
+}
+
+fn application_shortcut(event: &keyboard::Event) -> Option<ApplicationShortcut> {
+    let keyboard::Event::KeyPressed {
+        key,
+        physical_key,
+        modifiers,
+        repeat,
+        ..
+    } = event
+    else {
+        return None;
+    };
+
+    if *repeat {
+        return None;
+    }
+
+    let command_shift = keyboard::Modifiers::COMMAND | keyboard::Modifiers::SHIFT;
+    let latin_key = key
+        .to_latin(*physical_key)
+        .map(|character| character.to_ascii_lowercase());
+
+    if *modifiers == command_shift {
+        match latin_key {
+            Some('t') => return Some(ApplicationShortcut::New),
+            Some('w') => return Some(ApplicationShortcut::CloseActive),
+            _ => {}
+        }
+    }
+
+    if !matches!(key, keyboard::Key::Named(keyboard::key::Named::Tab)) {
+        return None;
+    }
+
+    if *modifiers == keyboard::Modifiers::CTRL {
+        Some(ApplicationShortcut::SelectNext)
+    } else if *modifiers == keyboard::Modifiers::CTRL | keyboard::Modifiers::SHIFT {
+        Some(ApplicationShortcut::SelectPrevious)
+    } else {
+        None
+    }
+}
+
+fn handle_keyboard_event(
+    app: &mut App,
+    event_window_id: window::Id,
+    event: keyboard::Event,
+    status: iced::event::Status,
+) -> Task<Message> {
+    if app.window_id != Some(event_window_id)
+        || !app.window_focused
+        || status == iced::event::Status::Captured
+    {
+        return Task::none();
+    }
+
+    let Some(shortcut) = application_shortcut(&event) else {
+        return Task::none();
+    };
+
+    execute_application_shortcut(app, shortcut)
+}
+
+fn execute_application_shortcut(app: &mut App, shortcut: ApplicationShortcut) -> Task<Message> {
+    match shortcut {
+        ApplicationShortcut::New => {
+            app.create_tab();
+            Task::none()
+        }
+        ApplicationShortcut::CloseActive => close_tab(app, app.active_tab),
+        ApplicationShortcut::SelectNext => {
+            select_next_tab(app);
+            Task::none()
+        }
+        ApplicationShortcut::SelectPrevious => {
+            select_previous_tab(app);
+            Task::none()
+        }
+    }
+}
+
+fn select_next_tab(app: &mut App) {
+    let Some(active_index) = app.tabs.iter().position(|tab| tab.id == app.active_tab) else {
+        return;
+    };
+
+    let next_index = (active_index + 1) % app.tabs.len();
+    app.active_tab = app.tabs[next_index].id;
+}
+
+fn select_previous_tab(app: &mut App) {
+    let Some(active_index) = app.tabs.iter().position(|tab| tab.id == app.active_tab) else {
+        return;
+    };
+
+    let previous_index = if active_index == 0 {
+        app.tabs.len() - 1
+    } else {
+        active_index - 1
+    };
+    app.active_tab = app.tabs[previous_index].id;
 }
