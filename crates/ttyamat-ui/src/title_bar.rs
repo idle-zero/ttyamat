@@ -170,7 +170,7 @@ fn new_tab_button() -> Element<'static, Message> {
         .width(NEW_TAB_BUTTON_WIDTH)
         .height(TAB_HEIGHT)
         .padding(0)
-        .style(tab_action_button_style) // TODO here style
+        .style(tab_action_button_style)
         .into()
 }
 fn centered_label(label: &'static str, size: f32) -> Element<'static, Message> {
