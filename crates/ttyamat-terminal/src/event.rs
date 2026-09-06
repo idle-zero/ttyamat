@@ -1,6 +1,6 @@
 use std::process::ExitStatus;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TerminalEvent {
     Wakeup,
     TitleChanged(Option<String>),

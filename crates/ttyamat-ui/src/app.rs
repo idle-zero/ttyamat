@@ -1,3 +1,5 @@
+use iced::futures::StreamExt;
+use iced::futures::channel::mpsc;
 use iced::widget::{mouse_area, row, space, stack};
 use iced::{Element, Theme, widget::column};
 use iced::{Fill, Length, Subscription, Task, mouse, window};
@@ -8,12 +10,10 @@ use crate::title_bar;
 
 const RESIZE_BORDER: f32 = 6.0;
 
-struct App {
-    window_id: Option<window::Id>,
-    tabs: Vec<Tab>,
-    active_tab: TabId,
-    hovered_tab: Option<TabId>,
-    next_tab_id: u64,
+#[derive(Debug, Clone)]
+struct SessionEvent {
+    tab_id: TabId,
+    event: ttyamat_terminal::TerminalEvent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,20 +23,48 @@ enum CloseTabOutcome {
     NotFound,
 }
 
+#[derive(Debug, Clone)]
+enum Message {
+    Event {
+        window_id: window::Id,
+        event: iced::Event,
+        status: iced::event::Status,
+    },
+    StartWindowResize(window::Direction),
+    TitleBar(title_bar::Message),
+    Terminal(terminal_view::Message),
+    TerminalEvent(SessionEvent),
+}
+
+struct App {
+    window_id: Option<window::Id>,
+    tabs: Vec<Tab>,
+    active_tab: TabId,
+    hovered_tab: Option<TabId>,
+    next_tab_id: u64,
+    terminal_event_sender: mpsc::UnboundedSender<SessionEvent>,
+}
 impl App {
-    fn new() -> Self {
+    fn new() -> (Self, Task<Message>) {
         let new_tab = Tab {
             id: TabId(1),
             title: String::from("Command"),
         };
 
-        Self {
-            active_tab: new_tab.id,
-            tabs: vec![new_tab],
-            hovered_tab: None,
-            window_id: None,
-            next_tab_id: 2,
-        }
+        let (sender, receiver) = mpsc::unbounded();
+        let terminal_event_task = Task::stream(receiver.map(Message::TerminalEvent));
+
+        (
+            Self {
+                active_tab: new_tab.id,
+                tabs: vec![new_tab],
+                hovered_tab: None,
+                window_id: None,
+                next_tab_id: 2,
+                terminal_event_sender: sender,
+            },
+            terminal_event_task,
+        )
     }
 
     fn create_tab(&mut self) {
@@ -74,18 +102,6 @@ impl App {
         }
         CloseTabOutcome::Closed
     }
-}
-
-#[derive(Debug, Clone)]
-enum Message {
-    Event {
-        window_id: window::Id,
-        event: iced::Event,
-        status: iced::event::Status,
-    },
-    StartWindowResize(window::Direction),
-    TitleBar(title_bar::Message),
-    Terminal(terminal_view::Message),
 }
 
 pub fn run() -> iced::Result {
@@ -175,6 +191,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             };
             window::drag_resize(window_id, direction)
         }
+        Message::TerminalEvent(session_event) => Task::none(),
     }
 }
 
