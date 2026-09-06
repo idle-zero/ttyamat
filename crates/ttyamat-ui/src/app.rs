@@ -3,17 +3,22 @@ use iced::futures::channel::mpsc;
 use iced::widget::{mouse_area, row, space, stack};
 use iced::{Element, Theme, widget::column};
 use iced::{Fill, Length, Subscription, Task, mouse, window};
+use ttyamat_terminal::{TerminalEvent, TerminalSession, TerminalSize};
 
 use crate::tab::{Tab, TabId};
 use crate::terminal_view;
 use crate::title_bar;
 
 const RESIZE_BORDER: f32 = 6.0;
+const INITIAL_TERMINAL_COLUMNS: u16 = 80;
+const INITIAL_TERMINAL_LINES: u16 = 24;
+const INITIAL_CELL_WIDTH: u16 = 8;
+const INITIAL_CELL_HEIGHT: u16 = 16;
 
 #[derive(Debug, Clone)]
 struct SessionEvent {
     tab_id: TabId,
-    event: ttyamat_terminal::TerminalEvent,
+    event: TerminalEvent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,34 +51,40 @@ struct App {
 }
 impl App {
     fn new() -> (Self, Task<Message>) {
-        let new_tab = Tab {
-            id: TabId(1),
-            title: String::from("Command"),
-        };
-
         let (sender, receiver) = mpsc::unbounded();
         let terminal_event_task = Task::stream(receiver.map(Message::TerminalEvent));
-
-        (
-            Self {
-                active_tab: new_tab.id,
-                tabs: vec![new_tab],
-                hovered_tab: None,
-                window_id: None,
-                next_tab_id: 2,
-                terminal_event_sender: sender,
-            },
-            terminal_event_task,
-        )
+        let first_tab_id = TabId(1);
+        let mut app = Self {
+            active_tab: first_tab_id,
+            tabs: Vec::new(),
+            hovered_tab: None,
+            window_id: None,
+            next_tab_id: 1,
+            terminal_event_sender: sender,
+        };
+        app.create_tab();
+        (app, terminal_event_task)
     }
 
     fn create_tab(&mut self) {
         let id = TabId(self.next_tab_id);
-        self.next_tab_id += 1;
+        let sender = self.terminal_event_sender.clone();
+        let fallback_title = format!("Tab {}", id.0);
+        let size = initial_terminal_size();
 
+        // TODO(error-reporting): Replace `expect` with graceful session-startup handling:
+        // log `TerminalSessionError`, notify the user, and do not insert or activate a failed tab.
+        let terminal_session = TerminalSession::spawn_default(size, move |event| {
+            let _ = sender.unbounded_send(SessionEvent { tab_id: id, event });
+        })
+        .expect("failed to start terminal session");
+
+        self.next_tab_id += 1;
         self.tabs.push(Tab {
             id,
-            title: format!("Terminal {}", id.0),
+            title: fallback_title.clone(),
+            fallback_title,
+            session: terminal_session,
         });
 
         self.active_tab = id;
@@ -90,7 +101,8 @@ impl App {
         }
 
         let was_active = self.active_tab == id;
-        self.tabs.remove(index);
+        let closed_tab = self.tabs.remove(index);
+        drop(closed_tab.session);
 
         if self.hovered_tab == Some(id) {
             self.hovered_tab = None;
@@ -151,15 +163,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.create_tab();
                 Task::none()
             }
-            title_bar::Message::TabClosePressed(id) => match app.close_tab(id) {
-                CloseTabOutcome::CloseWindow => {
-                    let Some(window_id) = app.window_id else {
-                        return Task::none();
-                    };
-                    window::close(window_id)
-                }
-                CloseTabOutcome::Closed | CloseTabOutcome::NotFound => Task::none(),
-            },
+            title_bar::Message::TabClosePressed(id) => close_tab(app, id),
             title_bar::Message::TabPressed(id) => {
                 if app.tabs.iter().any(|tab| tab.id == id) {
                     app.active_tab = id;
@@ -191,7 +195,9 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             };
             window::drag_resize(window_id, direction)
         }
-        Message::TerminalEvent(session_event) => Task::none(),
+        Message::TerminalEvent(session_event) => {
+            handle_terminal_event(app, session_event.tab_id, session_event.event)
+        }
     }
 }
 
@@ -302,4 +308,50 @@ fn resize_handle(
         .on_press(Message::StartWindowResize(direction))
         .interaction(interaction)
         .into()
+}
+
+fn handle_terminal_event(app: &mut App, tab_id: TabId, event: TerminalEvent) -> Task<Message> {
+    match event {
+        TerminalEvent::Bell => {
+            // TODO(notification): Surface terminal bells without blocking the UI thread.
+            Task::none()
+        }
+        TerminalEvent::ChildExited(status) => {
+            // TODO(error-reporting): Log the child exit status and notify the user when appropriate.
+            let _ = status;
+            close_tab(app, tab_id)
+        }
+        TerminalEvent::ExitRequested => close_tab(app, tab_id),
+        TerminalEvent::TitleChanged(opt_title) => {
+            let Some(tab) = app.tabs.iter_mut().find(|tab| tab.id == tab_id) else {
+                return Task::none();
+            };
+
+            tab.title = opt_title.unwrap_or_else(|| tab.fallback_title.clone());
+            Task::none()
+        }
+        TerminalEvent::Wakeup => Task::none(),
+    }
+}
+
+fn close_tab(app: &mut App, tab_id: TabId) -> Task<Message> {
+    if app.close_tab(tab_id) != CloseTabOutcome::CloseWindow {
+        return Task::none();
+    }
+
+    let Some(window_id) = app.window_id else {
+        return Task::none();
+    };
+
+    window::close(window_id)
+}
+
+fn initial_terminal_size() -> TerminalSize {
+    TerminalSize::new(
+        INITIAL_TERMINAL_COLUMNS,
+        INITIAL_TERMINAL_LINES,
+        INITIAL_CELL_WIDTH,
+        INITIAL_CELL_HEIGHT,
+    )
+    .expect("initial terminal dimensions must be non-zero")
 }
