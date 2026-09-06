@@ -17,7 +17,7 @@ pub(crate) fn encode(event: &keyboard::Event) -> Option<Vec<u8>> {
         return None;
     };
 
-    // Alt/AltGr and Super/Command behavior will be added with the extended
+    // TODO: Alt/AltGr and Super/Command behavior will be added with the extended
     // keyboard protocol support. Do not emit misleading bytes in the meantime.
     if modifiers.alt() || modifiers.logo() {
         return None;
@@ -46,6 +46,7 @@ fn encode_named(key: Named) -> Option<Vec<u8>> {
         Named::Enter => Some(vec![b'\r']),
         Named::Backspace => Some(vec![0x7f]),
         Named::Tab => Some(vec![b'\t']),
+        Named::Space => Some(vec![b' ']),
         Named::Escape => Some(vec![ESCAPE]),
         Named::ArrowUp => Some(b"\x1b[A".to_vec()),
         Named::ArrowDown => Some(b"\x1b[B".to_vec()),

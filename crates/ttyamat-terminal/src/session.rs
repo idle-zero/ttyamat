@@ -8,12 +8,15 @@ use alacritty_terminal::{
 use std::{
     borrow::Cow,
     io,
-    sync::{Arc, OnceLock},
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     thread::JoinHandle,
 };
 use thiserror::Error;
 
-use crate::{TerminalEvent, TerminalSize};
+use crate::{TerminalEvent, TerminalFrame, TerminalRenderUpdate, TerminalSize};
 
 struct AlacrittyDimensions {
     columns: usize,
@@ -56,6 +59,7 @@ fn alacritty_window_size(size: TerminalSize) -> WindowSize {
 struct EventProxy {
     on_event: Arc<dyn Fn(TerminalEvent) + Send + Sync>,
     pty_sender: Arc<OnceLock<EventLoopSender>>,
+    wakeup_pending: Arc<AtomicBool>,
 }
 
 impl EventProxy {
@@ -63,6 +67,7 @@ impl EventProxy {
         Self {
             on_event: Arc::new(on_event),
             pty_sender: Arc::new(OnceLock::new()),
+            wakeup_pending: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -82,7 +87,9 @@ impl EventListener for EventProxy {
     fn send_event(&self, event: Event) {
         match event {
             Event::Wakeup => {
-                self.emit(TerminalEvent::Wakeup);
+                if !self.wakeup_pending.swap(true, Ordering::AcqRel) {
+                    self.emit(TerminalEvent::Wakeup);
+                }
             }
 
             Event::Title(title) => {
@@ -133,6 +140,7 @@ pub struct TerminalSession {
     terminal: Arc<FairMutex<Term<EventProxy>>>,
     sender: EventLoopSender,
     io_thread: Option<PtyThread>,
+    wakeup_pending: Arc<AtomicBool>,
 }
 
 impl TerminalSession {
@@ -173,11 +181,13 @@ impl TerminalSession {
         let sender = event_loop.channel();
         event_proxy.attach_pty_sender(sender.clone());
         let io_thread = event_loop.spawn();
+        let wakeup_pending = Arc::clone(&event_proxy.wakeup_pending);
 
         Ok(Self {
             terminal,
             sender,
             io_thread: Some(io_thread),
+            wakeup_pending,
         })
     }
 
@@ -191,6 +201,18 @@ impl TerminalSession {
 
         self.terminal.lock().resize(dimensions);
         self.send(Msg::Resize(window_size))
+    }
+
+    pub fn initial_frame(&self) -> TerminalFrame {
+        TerminalFrame::capture(&mut self.terminal.lock())
+    }
+
+    pub fn take_render_update(&self) -> Option<TerminalRenderUpdate> {
+        TerminalRenderUpdate::capture(&mut self.terminal.lock())
+    }
+
+    pub fn acknowledge_wakeup(&self) {
+        self.wakeup_pending.store(false, Ordering::Release);
     }
 
     pub fn shutdown(&mut self) -> Result<(), TerminalSessionError> {

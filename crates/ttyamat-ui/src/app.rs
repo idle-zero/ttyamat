@@ -13,8 +13,6 @@ use crate::title_bar;
 const RESIZE_BORDER: f32 = 6.0;
 const INITIAL_TERMINAL_COLUMNS: u16 = 80;
 const INITIAL_TERMINAL_LINES: u16 = 24;
-const INITIAL_CELL_WIDTH: u16 = 8;
-const INITIAL_CELL_HEIGHT: u16 = 16;
 
 #[derive(Debug, Clone)]
 struct SessionEvent {
@@ -103,6 +101,7 @@ impl App {
             let _ = sender.unbounded_send(SessionEvent { tab_id: id, event });
         })
         .expect("failed to start terminal session");
+        let terminal_frame = terminal_session.initial_frame();
 
         self.next_tab_id += 1;
         self.tabs.push(Tab {
@@ -110,6 +109,8 @@ impl App {
             title: fallback_title.clone(),
             fallback_title,
             session: terminal_session,
+            terminal_frame,
+            terminal_frame_dirty: false,
         });
 
         self.active_tab = id;
@@ -126,8 +127,7 @@ impl App {
         }
 
         let was_active = self.active_tab == id;
-        let closed_tab = self.tabs.remove(index);
-        drop(closed_tab.session);
+        drop(self.tabs.remove(index));
 
         if self.hovered_tab == Some(id) {
             self.hovered_tab = None;
@@ -192,6 +192,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             title_bar::Message::TabPressed(id) => {
                 if app.tabs.iter().any(|tab| tab.id == id) {
                     app.active_tab = id;
+                    refresh_tab_terminal_frame(app, id);
                 }
                 Task::none()
             }
@@ -216,15 +217,15 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 window::Event::Opened { size, .. } => {
                     app.window_size = Some(size);
                     app.window_id = Some(window_id);
-                    Task::none()
+                    resize_terminal_sessions(app)
                 }
                 window::Event::Resized(size) => {
                     app.window_size = Some(size);
-                    Task::none()
+                    resize_terminal_sessions(app)
                 }
                 window::Event::Rescaled(scale_factor) => {
                     app.scale_factor = scale_factor;
-                    Task::none()
+                    resize_terminal_sessions(app)
                 }
                 window::Event::Focused => {
                     app.window_focused = true;
@@ -263,7 +264,12 @@ fn subscription(_: &App) -> Subscription<Message> {
 fn view(app: &App) -> Element<'_, Message> {
     let title_bar =
         title_bar::view(&app.tabs, app.active_tab, app.hovered_tab).map(Message::TitleBar);
-    let terminal = terminal_view::view().map(Message::Terminal);
+    let active_frame = app
+        .tabs
+        .iter()
+        .find(|tab| tab.id == app.active_tab)
+        .map(|tab| &tab.terminal_frame);
+    let terminal = terminal_view::view(active_frame).map(Message::Terminal);
 
     let content = column![title_bar, terminal].width(Fill).height(Fill);
 
@@ -379,7 +385,16 @@ fn handle_terminal_event(app: &mut App, tab_id: TabId, event: TerminalEvent) -> 
             tab.title = opt_title.unwrap_or_else(|| tab.fallback_title.clone());
             Task::none()
         }
-        TerminalEvent::Wakeup => Task::none(),
+        TerminalEvent::Wakeup => {
+            if let Some(tab) = app.tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                tab.terminal_frame_dirty = true;
+            }
+
+            if app.active_tab == tab_id {
+                refresh_tab_terminal_frame(app, tab_id);
+            }
+            Task::none()
+        }
     }
 }
 
@@ -399,8 +414,8 @@ fn initial_terminal_size() -> TerminalSize {
     TerminalSize::new(
         INITIAL_TERMINAL_COLUMNS,
         INITIAL_TERMINAL_LINES,
-        INITIAL_CELL_WIDTH,
-        INITIAL_CELL_HEIGHT,
+        terminal_view::CELL_WIDTH as u16,
+        terminal_view::CELL_HEIGHT as u16,
     )
     .expect("initial terminal dimensions must be non-zero")
 }
@@ -519,6 +534,7 @@ fn select_next_tab(app: &mut App) {
 
     let next_index = (active_index + 1) % app.tabs.len();
     app.active_tab = app.tabs[next_index].id;
+    refresh_tab_terminal_frame(app, app.active_tab);
 }
 
 fn select_previous_tab(app: &mut App) {
@@ -532,4 +548,48 @@ fn select_previous_tab(app: &mut App) {
         active_index - 1
     };
     app.active_tab = app.tabs[previous_index].id;
+    refresh_tab_terminal_frame(app, app.active_tab);
+}
+
+fn refresh_tab_terminal_frame(app: &mut App, tab_id: TabId) {
+    let Some(tab) = app.tabs.iter_mut().find(|tab| tab.id == tab_id) else {
+        return;
+    };
+
+    if !tab.terminal_frame_dirty {
+        return;
+    }
+
+    tab.session.acknowledge_wakeup();
+    if let Some(update) = tab.session.take_render_update() {
+        tab.terminal_frame.apply(update);
+    }
+    tab.terminal_frame_dirty = false;
+}
+
+fn resize_terminal_sessions(app: &mut App) -> Task<Message> {
+    let Some(window_size) = app.window_size else {
+        return Task::none();
+    };
+    let Some(size) = terminal_view::size_for_window(window_size, app.scale_factor) else {
+        return Task::none();
+    };
+
+    if size == app.terminal_size {
+        return Task::none();
+    }
+
+    app.terminal_size = size;
+    let mut failed_tabs = Vec::new();
+
+    for tab in &mut app.tabs {
+        if tab.session.resize(size).is_err() {
+            failed_tabs.push(tab.id);
+        }
+        tab.terminal_frame_dirty = true;
+    }
+
+    refresh_tab_terminal_frame(app, app.active_tab);
+
+    Task::batch(failed_tabs.into_iter().map(|tab_id| close_tab(app, tab_id)))
 }

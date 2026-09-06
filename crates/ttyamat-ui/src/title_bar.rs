@@ -19,7 +19,7 @@ pub(crate) enum Message {
 
 const TAB_MAX_WIDTH: f32 = 250.0;
 const TAB_HEIGHT: f32 = 32.0;
-const TITLE_BAR_HEIGHT: f32 = 40.0;
+pub(crate) const HEIGHT: f32 = 40.0;
 const CONTROL_WIDTH: f32 = 46.0;
 const TAB_CLOSE_SLOT_WIDTH: f32 = 40.0;
 const TAB_CLOSE_BUTTON_SIZE: f32 = 28.0;
@@ -75,44 +75,44 @@ pub(crate) fn view<'a>(
             .push(drag_region(Fill))
             .push(drag_region(Length::Fixed(TAB_GROUP_RIGHT_INSET)))
             .width(Fill)
-            .height(TITLE_BAR_HEIGHT)
+            .height(HEIGHT)
             .align_y(Bottom)
             .into()
     })
     .width(Fill)
-    .height(TITLE_BAR_HEIGHT);
+    .height(HEIGHT);
 
     let minimize = button(centered_label("—", 13.0))
         .on_press(Message::MinimizeWindow)
         .width(CONTROL_WIDTH)
-        .height(TITLE_BAR_HEIGHT)
+        .height(HEIGHT)
         .padding(0)
         .style(caption_button_style);
     let maximize = button(centered_label("□", 18.0))
         .on_press(Message::ToggleMaximize)
         .width(CONTROL_WIDTH)
-        .height(TITLE_BAR_HEIGHT)
+        .height(HEIGHT)
         .padding(0)
         .style(caption_button_style);
     let close = button(centered_label("×", 20.0))
         .on_press(Message::CloseWindow)
         .width(CONTROL_WIDTH)
-        .height(TITLE_BAR_HEIGHT)
+        .height(HEIGHT)
         .padding(0)
         .style(close_button_style);
     let controls = row![minimize, maximize, close]
         .width(Length::Shrink)
-        .height(TITLE_BAR_HEIGHT)
+        .height(HEIGHT)
         .align_y(Bottom);
 
     container(
         row![tabs_region, controls]
             .width(Fill)
-            .height(TITLE_BAR_HEIGHT)
+            .height(HEIGHT)
             .align_y(Center),
     )
     .width(Fill)
-    .height(TITLE_BAR_HEIGHT)
+    .height(HEIGHT)
     .style(title_bar_style)
     .into()
 }
@@ -196,7 +196,7 @@ fn tab_separator(visible: bool) -> Element<'static, Message> {
 }
 
 fn drag_region(width: Length) -> Element<'static, Message> {
-    mouse_area(space::horizontal().width(width).height(TITLE_BAR_HEIGHT))
+    mouse_area(space::horizontal().width(width).height(HEIGHT))
         .on_press(Message::StartWindowDrag)
         .on_double_click(Message::ToggleMaximize)
         .into()
