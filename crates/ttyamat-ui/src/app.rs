@@ -6,6 +6,7 @@ use iced::{Fill, Length, Subscription, Task, keyboard, mouse, window};
 use ttyamat_terminal::{TerminalEvent, TerminalSession, TerminalSize};
 
 use crate::tab::{Tab, TabId};
+use crate::terminal_input;
 use crate::terminal_view;
 use crate::title_bar;
 
@@ -34,6 +35,13 @@ enum ApplicationShortcut {
     CloseActive,
     SelectNext,
     SelectPrevious,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum KeyboardAction {
+    Shortcut(ApplicationShortcut),
+    TerminalInput(Vec<u8>),
+    Ignore,
 }
 
 #[derive(Debug, Clone)]
@@ -402,16 +410,11 @@ fn application_shortcut(event: &keyboard::Event) -> Option<ApplicationShortcut> 
         key,
         physical_key,
         modifiers,
-        repeat,
         ..
     } = event
     else {
         return None;
     };
-
-    if *repeat {
-        return None;
-    }
 
     let command_shift = keyboard::Modifiers::COMMAND | keyboard::Modifiers::SHIFT;
     let latin_key = key
@@ -432,7 +435,7 @@ fn application_shortcut(event: &keyboard::Event) -> Option<ApplicationShortcut> 
 
     if *modifiers == keyboard::Modifiers::CTRL {
         Some(ApplicationShortcut::SelectNext)
-    } else if *modifiers == keyboard::Modifiers::CTRL | keyboard::Modifiers::SHIFT {
+    } else if *modifiers == (keyboard::Modifiers::CTRL | keyboard::Modifiers::SHIFT) {
         Some(ApplicationShortcut::SelectPrevious)
     } else {
         None
@@ -452,11 +455,43 @@ fn handle_keyboard_event(
         return Task::none();
     }
 
-    let Some(shortcut) = application_shortcut(&event) else {
-        return Task::none();
-    };
+    match keyboard_action(&event) {
+        KeyboardAction::Shortcut(shortcut) => execute_application_shortcut(app, shortcut),
+        KeyboardAction::TerminalInput(bytes) => write_to_active_terminal(app, bytes),
+        KeyboardAction::Ignore => Task::none(),
+    }
+}
 
-    execute_application_shortcut(app, shortcut)
+fn keyboard_action(event: &keyboard::Event) -> KeyboardAction {
+    if let Some(shortcut) = application_shortcut(event) {
+        return if is_repeated_keypress(event) {
+            KeyboardAction::Ignore
+        } else {
+            KeyboardAction::Shortcut(shortcut)
+        };
+    }
+
+    terminal_input::encode(event)
+        .map(KeyboardAction::TerminalInput)
+        .unwrap_or(KeyboardAction::Ignore)
+}
+
+fn is_repeated_keypress(event: &keyboard::Event) -> bool {
+    matches!(event, keyboard::Event::KeyPressed { repeat: true, .. })
+}
+
+fn write_to_active_terminal(app: &mut App, bytes: Vec<u8>) -> Task<Message> {
+    let active_tab = app.active_tab;
+    let write_result = app
+        .tabs
+        .iter()
+        .find(|tab| tab.id == active_tab)
+        .map(|tab| tab.session.write(bytes));
+
+    match write_result {
+        Some(Ok(())) | None => Task::none(),
+        Some(Err(_error)) => close_tab(app, active_tab),
+    }
 }
 
 fn execute_application_shortcut(app: &mut App, shortcut: ApplicationShortcut) -> Task<Message> {
