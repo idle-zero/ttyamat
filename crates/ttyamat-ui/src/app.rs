@@ -139,144 +139,144 @@ impl App {
         }
         CloseTabOutcome::Closed
     }
+
+    fn update(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::TitleBar(tb_message) => match tb_message {
+                title_bar::Message::MinimizeWindow => {
+                    let Some(window_id) = self.window_id else {
+                        return Task::none();
+                    };
+                    window::minimize(window_id, true)
+                }
+                title_bar::Message::ToggleMaximize => {
+                    let Some(window_id) = self.window_id else {
+                        return Task::none();
+                    };
+                    window::toggle_maximize(window_id)
+                }
+                title_bar::Message::CloseWindow => {
+                    let Some(window_id) = self.window_id else {
+                        return Task::none();
+                    };
+                    window::close(window_id)
+                }
+                title_bar::Message::StartWindowDrag => {
+                    let Some(window_id) = self.window_id else {
+                        return Task::none();
+                    };
+                    window::drag(window_id)
+                }
+                title_bar::Message::NewTabPressed => {
+                    self.create_tab();
+                    Task::none()
+                }
+                title_bar::Message::TabClosePressed(id) => close_tab(self, id),
+                title_bar::Message::TabPressed(id) => {
+                    if self.tabs.iter().any(|tab| tab.id == id) {
+                        self.active_tab = id;
+                        refresh_tab_terminal_frame(self, id);
+                    }
+                    Task::none()
+                }
+                title_bar::Message::TabHoverChanged { id, is_hovered } => {
+                    if is_hovered {
+                        self.hovered_tab = Some(id);
+                    } else if self.hovered_tab == Some(id) {
+                        self.hovered_tab = None;
+                    }
+                    Task::none()
+                }
+            },
+            Message::Event {
+                window_id,
+                event,
+                status,
+            } => match event {
+                iced::Event::Keyboard(keyboard_event) => {
+                    handle_keyboard_event(self, window_id, keyboard_event, status)
+                }
+                iced::Event::Window(window_event) => match window_event {
+                    window::Event::Opened { size, .. } => {
+                        self.window_size = Some(size);
+                        self.window_id = Some(window_id);
+                        resize_terminal_sessions(self)
+                    }
+                    window::Event::Resized(size) => {
+                        self.window_size = Some(size);
+                        resize_terminal_sessions(self)
+                    }
+                    window::Event::Rescaled(scale_factor) => {
+                        self.scale_factor = scale_factor;
+                        resize_terminal_sessions(self)
+                    }
+                    window::Event::Focused => {
+                        self.window_focused = true;
+                        Task::none()
+                    }
+                    window::Event::Unfocused => {
+                        self.window_focused = false;
+                        Task::none()
+                    }
+                    _ => Task::none(),
+                },
+                _ => Task::none(),
+            },
+            Message::StartWindowResize(direction) => {
+                let Some(window_id) = self.window_id else {
+                    return Task::none();
+                };
+                window::drag_resize(window_id, direction)
+            }
+            Message::TerminalEvent(session_event) => {
+                handle_terminal_event(self, session_event.tab_id, session_event.event)
+            }
+        }
+    }
+
+    fn view(&self) -> Element<'_, Message> {
+        let title_bar =
+            title_bar::view(&self.tabs, self.active_tab, self.hovered_tab).map(Message::TitleBar);
+        let active_frame = self
+            .tabs
+            .iter()
+            .find(|tab| tab.id == self.active_tab)
+            .map(|tab| &tab.terminal_frame);
+        let terminal = terminal_view::view(active_frame).map(Message::Terminal);
+
+        let content = column![title_bar, terminal].width(Fill).height(Fill);
+
+        stack![content, resize_handles()]
+            .width(Fill)
+            .height(Fill)
+            .into()
+    }
+
+    fn theme(&self) -> Theme {
+        Theme::Dark
+    }
+
+    fn subscription(&self) -> Subscription<Message> {
+        iced::event::listen_with(|event, status, window_id| {
+            Some(Message::Event {
+                window_id,
+                event,
+                status,
+            })
+        })
+    }
 }
 
 pub fn run() -> iced::Result {
-    iced::application(App::new, update, view)
+    iced::application(App::new, App::update, App::view)
         .title("ttyamat")
-        .theme(theme)
-        .subscription(subscription)
+        .theme(App::theme)
+        .subscription(App::subscription)
         .decorations(false)
         .resizable(true)
         .window_size((1000, 700))
         .centered()
         .run()
-}
-
-fn theme(_: &App) -> Theme {
-    Theme::Dark
-}
-
-fn update(app: &mut App, message: Message) -> Task<Message> {
-    match message {
-        Message::TitleBar(tb_message) => match tb_message {
-            title_bar::Message::MinimizeWindow => {
-                let Some(window_id) = app.window_id else {
-                    return Task::none();
-                };
-                window::minimize(window_id, true)
-            }
-            title_bar::Message::ToggleMaximize => {
-                let Some(window_id) = app.window_id else {
-                    return Task::none();
-                };
-                window::toggle_maximize(window_id)
-            }
-            title_bar::Message::CloseWindow => {
-                let Some(window_id) = app.window_id else {
-                    return Task::none();
-                };
-                window::close(window_id)
-            }
-            title_bar::Message::StartWindowDrag => {
-                let Some(window_id) = app.window_id else {
-                    return Task::none();
-                };
-                window::drag(window_id)
-            }
-            title_bar::Message::NewTabPressed => {
-                app.create_tab();
-                Task::none()
-            }
-            title_bar::Message::TabClosePressed(id) => close_tab(app, id),
-            title_bar::Message::TabPressed(id) => {
-                if app.tabs.iter().any(|tab| tab.id == id) {
-                    app.active_tab = id;
-                    refresh_tab_terminal_frame(app, id);
-                }
-                Task::none()
-            }
-            title_bar::Message::TabHoverChanged { id, is_hovered } => {
-                if is_hovered {
-                    app.hovered_tab = Some(id);
-                } else if app.hovered_tab == Some(id) {
-                    app.hovered_tab = None;
-                }
-                Task::none()
-            }
-        },
-        Message::Event {
-            window_id,
-            event,
-            status,
-        } => match event {
-            iced::Event::Keyboard(keyboard_event) => {
-                handle_keyboard_event(app, window_id, keyboard_event, status)
-            }
-            iced::Event::Window(window_event) => match window_event {
-                window::Event::Opened { size, .. } => {
-                    app.window_size = Some(size);
-                    app.window_id = Some(window_id);
-                    resize_terminal_sessions(app)
-                }
-                window::Event::Resized(size) => {
-                    app.window_size = Some(size);
-                    resize_terminal_sessions(app)
-                }
-                window::Event::Rescaled(scale_factor) => {
-                    app.scale_factor = scale_factor;
-                    resize_terminal_sessions(app)
-                }
-                window::Event::Focused => {
-                    app.window_focused = true;
-                    Task::none()
-                }
-                window::Event::Unfocused => {
-                    app.window_focused = false;
-                    Task::none()
-                }
-                _ => Task::none(),
-            },
-            _ => Task::none(),
-        },
-        Message::StartWindowResize(direction) => {
-            let Some(window_id) = app.window_id else {
-                return Task::none();
-            };
-            window::drag_resize(window_id, direction)
-        }
-        Message::TerminalEvent(session_event) => {
-            handle_terminal_event(app, session_event.tab_id, session_event.event)
-        }
-    }
-}
-
-fn subscription(_: &App) -> Subscription<Message> {
-    iced::event::listen_with(|event, status, window_id| {
-        Some(Message::Event {
-            window_id,
-            event,
-            status,
-        })
-    })
-}
-
-fn view(app: &App) -> Element<'_, Message> {
-    let title_bar =
-        title_bar::view(&app.tabs, app.active_tab, app.hovered_tab).map(Message::TitleBar);
-    let active_frame = app
-        .tabs
-        .iter()
-        .find(|tab| tab.id == app.active_tab)
-        .map(|tab| &tab.terminal_frame);
-    let terminal = terminal_view::view(active_frame).map(Message::Terminal);
-
-    let content = column![title_bar, terminal].width(Fill).height(Fill);
-
-    stack![content, resize_handles()]
-        .width(Fill)
-        .height(Fill)
-        .into()
 }
 
 fn resize_handles() -> Element<'static, Message> {
