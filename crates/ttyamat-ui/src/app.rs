@@ -1,16 +1,15 @@
 use iced::futures::StreamExt;
 use iced::futures::channel::mpsc;
-use iced::widget::{mouse_area, row, space, stack};
+use iced::widget::stack;
 use iced::{Element, Theme, widget::column};
-use iced::{Fill, Length, Subscription, Task, keyboard, mouse, window};
+use iced::{Fill, Subscription, Task, keyboard, window};
 use ttyamat_terminal::{TerminalEvent, TerminalSession, TerminalSize};
 
 use crate::tab::{Tab, TabId};
-use crate::terminal_input;
-use crate::terminal_view;
 use crate::title_bar;
+use crate::window::{Change, Command, WindowState};
+use crate::{shortcuts, terminal_input, terminal_view, window_chrome};
 
-const RESIZE_BORDER: f32 = 6.0;
 const INITIAL_TERMINAL_COLUMNS: u16 = 80;
 const INITIAL_TERMINAL_LINES: u16 = 24;
 
@@ -27,39 +26,25 @@ enum CloseTabOutcome {
     NotFound,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ApplicationShortcut {
-    New,
-    CloseActive,
-    SelectNext,
-    SelectPrevious,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum KeyboardAction {
-    Shortcut(ApplicationShortcut),
-    TerminalInput(Vec<u8>),
-    Ignore,
-}
-
 #[derive(Debug, Clone)]
 enum Message {
-    Event {
-        window_id: window::Id,
-        event: iced::Event,
+    Window {
+        id: iced::window::Id,
+        event: iced::window::Event,
+    },
+    Keyboard {
+        window_id: iced::window::Id,
+        event: iced::keyboard::Event,
         status: iced::event::Status,
     },
-    StartWindowResize(window::Direction),
+    WindowCommand(Command),
     TitleBar(title_bar::Message),
     Terminal(terminal_view::Message),
     TerminalEvent(SessionEvent),
 }
 
 struct App {
-    window_id: Option<window::Id>,
-    window_focused: bool,
-    window_size: Option<iced::Size>,
-    scale_factor: f32,
+    window: WindowState,
     tabs: Vec<Tab>,
     active_tab: TabId,
     hovered_tab: Option<TabId>,
@@ -77,10 +62,7 @@ impl App {
             active_tab: first_tab_id,
             tabs: Vec::new(),
             hovered_tab: None,
-            window_id: None,
-            window_focused: false,
-            window_size: None,
-            scale_factor: 1.0,
+            window: WindowState::new(),
             next_tab_id: 1,
             terminal_event_sender: sender,
             terminal_size: initial_terminal_size(),
@@ -135,234 +117,133 @@ impl App {
 
         if was_active {
             let replacement_idx = index.min(self.tabs.len() - 1);
-            self.active_tab = self.tabs[replacement_idx].id
+            self.active_tab = self.tabs[replacement_idx].id;
         }
         CloseTabOutcome::Closed
     }
-}
 
-pub fn run() -> iced::Result {
-    iced::application(App::new, update, view)
-        .title("ttyamat")
-        .theme(theme)
-        .subscription(subscription)
-        .decorations(false)
-        .resizable(true)
-        .window_size((1000, 700))
-        .centered()
-        .run()
-}
+    fn update(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::Window { id, event } => self.handle_window_event(id, event),
+            Message::Keyboard {
+                window_id,
+                event,
+                status,
+            } => self.handle_keyboard_event(window_id, event, status),
+            Message::WindowCommand(command) => self.window.command(command),
+            Message::TitleBar(message) => self.handle_title_bar(message),
+            Message::Terminal(message) => match message {},
+            Message::TerminalEvent(event) => handle_terminal_event(self, event.tab_id, event.event),
+        }
+    }
 
-fn theme(_: &App) -> Theme {
-    Theme::Dark
-}
+    fn handle_window_event(&mut self, id: window::Id, event: window::Event) -> Task<Message> {
+        match self.window.handle_event(id, event) {
+            Change::GeometryChanged => resize_terminal_sessions(self),
+            Change::None => Task::none(),
+        }
+    }
 
-fn update(app: &mut App, message: Message) -> Task<Message> {
-    match message {
-        Message::TitleBar(tb_message) => match tb_message {
-            title_bar::Message::MinimizeWindow => {
-                let Some(window_id) = app.window_id else {
-                    return Task::none();
-                };
-                window::minimize(window_id, true)
-            }
-            title_bar::Message::ToggleMaximize => {
-                let Some(window_id) = app.window_id else {
-                    return Task::none();
-                };
-                window::toggle_maximize(window_id)
-            }
-            title_bar::Message::CloseWindow => {
-                let Some(window_id) = app.window_id else {
-                    return Task::none();
-                };
-                window::close(window_id)
-            }
-            title_bar::Message::StartWindowDrag => {
-                let Some(window_id) = app.window_id else {
-                    return Task::none();
-                };
-                window::drag(window_id)
-            }
+    fn handle_title_bar(&mut self, message: title_bar::Message) -> Task<Message> {
+        match message {
+            title_bar::Message::MinimizeWindow => self.window.command(Command::Minimize),
+            title_bar::Message::ToggleMaximize => self.window.command(Command::ToggleMaximize),
+            title_bar::Message::CloseWindow => self.window.command(Command::Close),
+            title_bar::Message::StartWindowDrag => self.window.command(Command::Drag),
             title_bar::Message::NewTabPressed => {
-                app.create_tab();
+                self.create_tab();
                 Task::none()
             }
-            title_bar::Message::TabClosePressed(id) => close_tab(app, id),
+            title_bar::Message::TabClosePressed(id) => close_tab(self, id),
             title_bar::Message::TabPressed(id) => {
-                if app.tabs.iter().any(|tab| tab.id == id) {
-                    app.active_tab = id;
-                    refresh_tab_terminal_frame(app, id);
+                if self.tabs.iter().any(|tab| tab.id == id) {
+                    self.active_tab = id;
+                    refresh_tab_terminal_frame(self, id);
                 }
                 Task::none()
             }
             title_bar::Message::TabHoverChanged { id, is_hovered } => {
                 if is_hovered {
-                    app.hovered_tab = Some(id);
-                } else if app.hovered_tab == Some(id) {
-                    app.hovered_tab = None;
+                    self.hovered_tab = Some(id);
+                } else if self.hovered_tab == Some(id) {
+                    self.hovered_tab = None;
                 }
                 Task::none()
             }
-        },
-        Message::Event {
-            window_id,
-            event,
-            status,
-        } => match event {
-            iced::Event::Keyboard(keyboard_event) => {
-                handle_keyboard_event(app, window_id, keyboard_event, status)
-            }
-            iced::Event::Window(window_event) => match window_event {
-                window::Event::Opened { size, .. } => {
-                    app.window_size = Some(size);
-                    app.window_id = Some(window_id);
-                    resize_terminal_sessions(app)
-                }
-                window::Event::Resized(size) => {
-                    app.window_size = Some(size);
-                    resize_terminal_sessions(app)
-                }
-                window::Event::Rescaled(scale_factor) => {
-                    app.scale_factor = scale_factor;
-                    resize_terminal_sessions(app)
-                }
-                window::Event::Focused => {
-                    app.window_focused = true;
-                    Task::none()
-                }
-                window::Event::Unfocused => {
-                    app.window_focused = false;
-                    Task::none()
-                }
-                _ => Task::none(),
-            },
-            _ => Task::none(),
-        },
-        Message::StartWindowResize(direction) => {
-            let Some(window_id) = app.window_id else {
-                return Task::none();
-            };
-            window::drag_resize(window_id, direction)
-        }
-        Message::TerminalEvent(session_event) => {
-            handle_terminal_event(app, session_event.tab_id, session_event.event)
         }
     }
-}
 
-fn subscription(_: &App) -> Subscription<Message> {
-    iced::event::listen_with(|event, status, window_id| {
-        Some(Message::Event {
-            window_id,
-            event,
-            status,
-        })
-    })
-}
+    fn handle_keyboard_event(
+        &mut self,
+        window_id: window::Id,
+        event: keyboard::Event,
+        status: iced::event::Status,
+    ) -> Task<Message> {
+        if !self.window.accepts_keyboard(window_id, status) {
+            return Task::none();
+        }
 
-fn view(app: &App) -> Element<'_, Message> {
-    let title_bar =
-        title_bar::view(&app.tabs, app.active_tab, app.hovered_tab).map(Message::TitleBar);
-    let active_frame = app
-        .tabs
-        .iter()
-        .find(|tab| tab.id == app.active_tab)
-        .map(|tab| &tab.terminal_frame);
-    let terminal = terminal_view::view(active_frame).map(Message::Terminal);
+        match shortcuts::resolve(&event) {
+            shortcuts::Resolution::Execute(action) => execute_shortcut(self, action),
+            shortcuts::Resolution::Suppress => Task::none(),
+            shortcuts::Resolution::Unhandled => match terminal_input::encode(&event) {
+                Some(bytes) => write_to_active_terminal(self, bytes),
+                None => Task::none(),
+            },
+        }
+    }
 
-    let content = column![title_bar, terminal].width(Fill).height(Fill);
+    fn view(&self) -> Element<'_, Message> {
+        let title_bar =
+            title_bar::view(&self.tabs, self.active_tab, self.hovered_tab).map(Message::TitleBar);
+        let active_frame = self
+            .tabs
+            .iter()
+            .find(|tab| tab.id == self.active_tab)
+            .map(|tab| &tab.terminal_frame);
+        let terminal = terminal_view::view(active_frame).map(Message::Terminal);
 
-    stack![content, resize_handles()]
+        let content = column![title_bar, terminal].width(Fill).height(Fill);
+
+        stack![
+            content,
+            window_chrome::resize_handles().map(Message::WindowCommand)
+        ]
         .width(Fill)
         .height(Fill)
         .into()
+    }
+
+    fn theme(&self) -> Theme {
+        Theme::Dark
+    }
+
+    fn subscription(&self) -> Subscription<Message> {
+        iced::event::listen_with(|event, status, window_id| match event {
+            iced::Event::Window(event) => Some(Message::Window {
+                id: window_id,
+                event,
+            }),
+            iced::Event::Keyboard(event) => Some(Message::Keyboard {
+                window_id,
+                event,
+                status,
+            }),
+            _ => None,
+        })
+    }
 }
 
-fn resize_handles() -> Element<'static, Message> {
-    let border = Length::Fixed(RESIZE_BORDER);
-
-    let north_west = resize_handle(
-        window::Direction::NorthWest,
-        border,
-        border,
-        mouse::Interaction::ResizingDiagonallyDown,
-    );
-
-    let north = resize_handle(
-        window::Direction::North,
-        Fill,
-        border,
-        mouse::Interaction::ResizingVertically,
-    );
-
-    let north_east = resize_handle(
-        window::Direction::NorthEast,
-        border,
-        border,
-        mouse::Interaction::ResizingDiagonallyUp,
-    );
-
-    let west = resize_handle(
-        window::Direction::West,
-        border,
-        Fill,
-        mouse::Interaction::ResizingHorizontally,
-    );
-
-    let east = resize_handle(
-        window::Direction::East,
-        border,
-        Fill,
-        mouse::Interaction::ResizingHorizontally,
-    );
-
-    let south_west = resize_handle(
-        window::Direction::SouthWest,
-        border,
-        border,
-        mouse::Interaction::ResizingDiagonallyUp,
-    );
-
-    let south = resize_handle(
-        window::Direction::South,
-        Fill,
-        border,
-        mouse::Interaction::ResizingVertically,
-    );
-
-    let south_east = resize_handle(
-        window::Direction::SouthEast,
-        border,
-        border,
-        mouse::Interaction::ResizingDiagonallyDown,
-    );
-
-    let top = row![north_west, north, north_east]
-        .width(Fill)
-        .height(border);
-
-    let center = row![west, space::Space::new().width(Fill).height(Fill), east]
-        .width(Fill)
-        .height(Fill);
-
-    let bottom = row![south_west, south, south_east]
-        .width(Fill)
-        .height(border);
-
-    column![top, center, bottom].width(Fill).height(Fill).into()
-}
-
-fn resize_handle(
-    direction: window::Direction,
-    width: Length,
-    height: Length,
-    interaction: mouse::Interaction,
-) -> Element<'static, Message> {
-    mouse_area(space::Space::new().width(width).height(height))
-        .on_press(Message::StartWindowResize(direction))
-        .interaction(interaction)
-        .into()
+pub fn run() -> iced::Result {
+    iced::application(App::new, App::update, App::view)
+        .title("ttyamat")
+        .theme(App::theme)
+        .subscription(App::subscription)
+        .decorations(false)
+        .resizable(true)
+        .window_size((1000, 700))
+        .centered()
+        .run()
 }
 
 fn handle_terminal_event(app: &mut App, tab_id: TabId, event: TerminalEvent) -> Task<Message> {
@@ -403,11 +284,7 @@ fn close_tab(app: &mut App, tab_id: TabId) -> Task<Message> {
         return Task::none();
     }
 
-    let Some(window_id) = app.window_id else {
-        return Task::none();
-    };
-
-    window::close(window_id)
+    app.window.command(Command::Close)
 }
 
 fn initial_terminal_size() -> TerminalSize {
@@ -418,81 +295,6 @@ fn initial_terminal_size() -> TerminalSize {
         terminal_view::CELL_HEIGHT as u16,
     )
     .expect("initial terminal dimensions must be non-zero")
-}
-
-fn application_shortcut(event: &keyboard::Event) -> Option<ApplicationShortcut> {
-    let keyboard::Event::KeyPressed {
-        key,
-        physical_key,
-        modifiers,
-        ..
-    } = event
-    else {
-        return None;
-    };
-
-    let command_shift = keyboard::Modifiers::COMMAND | keyboard::Modifiers::SHIFT;
-    let latin_key = key
-        .to_latin(*physical_key)
-        .map(|character| character.to_ascii_lowercase());
-
-    if *modifiers == command_shift {
-        match latin_key {
-            Some('t') => return Some(ApplicationShortcut::New),
-            Some('w') => return Some(ApplicationShortcut::CloseActive),
-            _ => {}
-        }
-    }
-
-    if !matches!(key, keyboard::Key::Named(keyboard::key::Named::Tab)) {
-        return None;
-    }
-
-    if *modifiers == keyboard::Modifiers::CTRL {
-        Some(ApplicationShortcut::SelectNext)
-    } else if *modifiers == (keyboard::Modifiers::CTRL | keyboard::Modifiers::SHIFT) {
-        Some(ApplicationShortcut::SelectPrevious)
-    } else {
-        None
-    }
-}
-
-fn handle_keyboard_event(
-    app: &mut App,
-    event_window_id: window::Id,
-    event: keyboard::Event,
-    status: iced::event::Status,
-) -> Task<Message> {
-    if app.window_id != Some(event_window_id)
-        || !app.window_focused
-        || status == iced::event::Status::Captured
-    {
-        return Task::none();
-    }
-
-    match keyboard_action(&event) {
-        KeyboardAction::Shortcut(shortcut) => execute_application_shortcut(app, shortcut),
-        KeyboardAction::TerminalInput(bytes) => write_to_active_terminal(app, bytes),
-        KeyboardAction::Ignore => Task::none(),
-    }
-}
-
-fn keyboard_action(event: &keyboard::Event) -> KeyboardAction {
-    if let Some(shortcut) = application_shortcut(event) {
-        return if is_repeated_keypress(event) {
-            KeyboardAction::Ignore
-        } else {
-            KeyboardAction::Shortcut(shortcut)
-        };
-    }
-
-    terminal_input::encode(event)
-        .map(KeyboardAction::TerminalInput)
-        .unwrap_or(KeyboardAction::Ignore)
-}
-
-fn is_repeated_keypress(event: &keyboard::Event) -> bool {
-    matches!(event, keyboard::Event::KeyPressed { repeat: true, .. })
 }
 
 fn write_to_active_terminal(app: &mut App, bytes: Vec<u8>) -> Task<Message> {
@@ -509,18 +311,18 @@ fn write_to_active_terminal(app: &mut App, bytes: Vec<u8>) -> Task<Message> {
     }
 }
 
-fn execute_application_shortcut(app: &mut App, shortcut: ApplicationShortcut) -> Task<Message> {
+fn execute_shortcut(app: &mut App, shortcut: shortcuts::Action) -> Task<Message> {
     match shortcut {
-        ApplicationShortcut::New => {
+        shortcuts::Action::OpenTab => {
             app.create_tab();
             Task::none()
         }
-        ApplicationShortcut::CloseActive => close_tab(app, app.active_tab),
-        ApplicationShortcut::SelectNext => {
+        shortcuts::Action::CloseActiveTab => close_tab(app, app.active_tab),
+        shortcuts::Action::NextTab => {
             select_next_tab(app);
             Task::none()
         }
-        ApplicationShortcut::SelectPrevious => {
+        shortcuts::Action::PreviousTab => {
             select_previous_tab(app);
             Task::none()
         }
@@ -568,10 +370,11 @@ fn refresh_tab_terminal_frame(app: &mut App, tab_id: TabId) {
 }
 
 fn resize_terminal_sessions(app: &mut App) -> Task<Message> {
-    let Some(window_size) = app.window_size else {
+    let Some(window_size) = app.window.size() else {
         return Task::none();
     };
-    let Some(size) = terminal_view::size_for_window(window_size, app.scale_factor) else {
+    let viewport = window_chrome::terminal_viewport(window_size);
+    let Some(size) = terminal_view::size_for_viewport(viewport, app.window.scale_factor()) else {
         return Task::none();
     };
 

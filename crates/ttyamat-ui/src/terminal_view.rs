@@ -3,7 +3,7 @@ use iced::widget::{Column, container, stack, text};
 use iced::{Element, Fill, Font, Pixels, Size, Theme};
 use ttyamat_terminal::{TerminalCursorShape, TerminalFrame, TerminalSize};
 
-use crate::{style, title_bar};
+use crate::style;
 
 pub(crate) const HORIZONTAL_PADDING: f32 = 10.0;
 pub(crate) const VERTICAL_PADDING: f32 = 8.0;
@@ -61,13 +61,13 @@ fn cursor_overlay(frame: Option<&TerminalFrame>) -> String {
     overlay
 }
 
-pub(crate) fn size_for_window(window_size: Size, scale_factor: f32) -> Option<TerminalSize> {
+pub(crate) fn size_for_viewport(viewport: Size, scale_factor: f32) -> Option<TerminalSize> {
     if !scale_factor.is_finite() || scale_factor <= 0.0 {
         return None;
     }
 
-    let usable_width = window_size.width - HORIZONTAL_PADDING * 2.0;
-    let usable_height = window_size.height - title_bar::HEIGHT - VERTICAL_PADDING * 2.0;
+    let usable_width = viewport.width - HORIZONTAL_PADDING * 2.0;
+    let usable_height = viewport.height - VERTICAL_PADDING * 2.0;
 
     if !usable_width.is_finite()
         || !usable_height.is_finite()
