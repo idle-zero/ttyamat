@@ -2,8 +2,8 @@ use iced::border::Radius;
 use iced::widget::{button, container, mouse_area, responsive, row, space, text};
 use iced::{Background, Border, Bottom, Center, Color, Element, Fill, Length, Theme};
 
+use super::tab::{Tab, TabId};
 use crate::style;
-use crate::tab::{Tab, TabId};
 
 #[derive(Clone, Debug)]
 pub(crate) enum Message {
@@ -29,9 +29,9 @@ const TAB_SEPARATOR_WIDTH: f32 = 1.0;
 const TAB_SEPARATOR_HEIGHT: f32 = 16.0;
 const NEW_TAB_BUTTON_WIDTH: f32 = 36.0;
 
-pub(crate) fn view<'a>(
+pub(super) fn view<'a>(
     tabs: &'a [Tab],
-    active_tab: TabId,
+    active_tab: Option<TabId>,
     hovered_tab: Option<TabId>,
 ) -> Element<'a, Message> {
     let tabs_region = responsive(move |size| {
@@ -54,13 +54,13 @@ pub(crate) fn view<'a>(
             tabs.iter()
                 .enumerate()
                 .fold(row![leading_region], |tabs_row, (index, item)| {
-                    let is_active = item.id == active_tab;
-                    let is_hovered = hovered_tab == Some(item.id);
+                    let is_active = Some(item.id()) == active_tab;
+                    let is_hovered = hovered_tab == Some(item.id());
                     let tabs_row = tabs_row.push(tab(item, is_active, is_hovered, tab_width));
 
                     if let Some(next) = tabs.get(index + 1) {
-                        let next_is_active = next.id == active_tab;
-                        let next_is_hovered = hovered_tab == Some(next.id);
+                        let next_is_active = Some(next.id()) == active_tab;
+                        let next_is_hovered = hovered_tab == Some(next.id());
                         let show_separator =
                             !is_active && !is_hovered && !next_is_active && !next_is_hovered;
 
@@ -119,19 +119,19 @@ pub(crate) fn view<'a>(
 
 fn tab<'a>(tab: &'a Tab, is_active: bool, is_hovered: bool, width: f32) -> Element<'a, Message> {
     let icon = text(">_").size(13).color(style::ACCENT_BLUE);
-    let title = text(&tab.title).size(14).color(style::PRIMARY_TEXT);
+    let title = text(tab.title()).size(14).color(style::PRIMARY_TEXT);
     let title_content = container(row![icon, title].spacing(10).align_y(Center).width(Fill))
         .width(Fill)
         .center_y(Fill);
 
     let title_region = button(title_content)
-        .on_press_maybe((!is_active).then_some(Message::TabPressed(tab.id)))
+        .on_press_maybe((!is_active).then_some(Message::TabPressed(tab.id())))
         .width(Fill)
         .height(TAB_HEIGHT)
         .padding([0, 14])
         .style(tab_title_button_style);
     let close_button = button(centered_label("×", 18.0))
-        .on_press(Message::TabClosePressed(tab.id))
+        .on_press(Message::TabClosePressed(tab.id()))
         .width(TAB_CLOSE_BUTTON_SIZE)
         .height(TAB_CLOSE_BUTTON_SIZE)
         .padding(0)
@@ -154,11 +154,11 @@ fn tab<'a>(tab: &'a Tab, is_active: bool, is_hovered: bool, width: f32) -> Eleme
 
     mouse_area(tab_surface)
         .on_enter(Message::TabHoverChanged {
-            id: tab.id,
+            id: tab.id(),
             is_hovered: true,
         })
         .on_exit(Message::TabHoverChanged {
-            id: tab.id,
+            id: tab.id(),
             is_hovered: false,
         })
         .into()

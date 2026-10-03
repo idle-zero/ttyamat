@@ -6,7 +6,7 @@ use iced::{
     window,
 };
 
-use crate::title_bar;
+use crate::workspace::title_bar;
 
 const RESIZE_BORDER: f32 = 6.0;
 
