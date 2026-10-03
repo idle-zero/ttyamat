@@ -44,7 +44,7 @@ impl Tabs {
         let was_empty = self.items.is_empty();
         self.items.push(tab);
         if was_empty {
-            self.activate(id);
+            self.select(id);
         }
         id
     }
@@ -64,7 +64,7 @@ impl Tabs {
             } else {
                 let replacement_idx = index.min(self.items.len() - 1);
                 let replacement_id = self.items[replacement_idx].id();
-                self.activate(replacement_id);
+                self.select(replacement_id);
             }
         }
 
@@ -74,7 +74,7 @@ impl Tabs {
         })
     }
 
-    pub(super) fn activate(&mut self, id: TabId) -> bool {
+    pub(super) fn select(&mut self, id: TabId) -> bool {
         if !self.items.iter().any(|tab| tab.id() == id) {
             return false;
         }

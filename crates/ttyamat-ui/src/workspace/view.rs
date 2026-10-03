@@ -2,11 +2,11 @@ use iced::widget::{column, container, text};
 use iced::{Element, Fill};
 
 use crate::style;
-use crate::terminal::metrics::CellMetrics;
+use crate::terminal::metrics::TerminalMetrics;
 
 use super::{Message, tabs::Tabs, title_bar};
 
-pub(super) fn view(tabs: &Tabs, metrics: CellMetrics) -> Element<'_, Message> {
+pub(super) fn view(tabs: &Tabs, metrics: TerminalMetrics) -> Element<'_, Message> {
     let title_bar =
         title_bar::view(tabs.items(), tabs.active_id(), tabs.hovered_id()).map(Message::TitleBar);
     let content = match tabs.active_tab() {

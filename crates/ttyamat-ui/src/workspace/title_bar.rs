@@ -10,10 +10,10 @@ pub(crate) enum Message {
     MinimizeWindow,
     ToggleMaximize,
     CloseWindow,
-    StartWindowDrag,
-    NewTabPressed,
-    TabPressed(TabId),
-    TabClosePressed(TabId),
+    BeginWindowDrag,
+    OpenTab,
+    SelectTab(TabId),
+    CloseTab(TabId),
     TabHoverChanged { id: TabId, is_hovered: bool },
 }
 
@@ -125,13 +125,13 @@ fn tab<'a>(tab: &'a Tab, is_active: bool, is_hovered: bool, width: f32) -> Eleme
         .center_y(Fill);
 
     let title_region = button(title_content)
-        .on_press_maybe((!is_active).then_some(Message::TabPressed(tab.id())))
+        .on_press_maybe((!is_active).then_some(Message::SelectTab(tab.id())))
         .width(Fill)
         .height(TAB_HEIGHT)
         .padding([0, 14])
         .style(tab_title_button_style);
     let close_button = button(centered_label("×", 18.0))
-        .on_press(Message::TabClosePressed(tab.id()))
+        .on_press(Message::CloseTab(tab.id()))
         .width(TAB_CLOSE_BUTTON_SIZE)
         .height(TAB_CLOSE_BUTTON_SIZE)
         .padding(0)
@@ -166,7 +166,7 @@ fn tab<'a>(tab: &'a Tab, is_active: bool, is_hovered: bool, width: f32) -> Eleme
 
 fn new_tab_button() -> Element<'static, Message> {
     button(centered_label("+", 20.0))
-        .on_press(Message::NewTabPressed)
+        .on_press(Message::OpenTab)
         .width(NEW_TAB_BUTTON_WIDTH)
         .height(TAB_HEIGHT)
         .padding(0)
@@ -197,7 +197,7 @@ fn tab_separator(visible: bool) -> Element<'static, Message> {
 
 fn drag_region(width: Length) -> Element<'static, Message> {
     mouse_area(space::horizontal().width(width).height(HEIGHT))
-        .on_press(Message::StartWindowDrag)
+        .on_press(Message::BeginWindowDrag)
         .on_double_click(Message::ToggleMaximize)
         .into()
 }

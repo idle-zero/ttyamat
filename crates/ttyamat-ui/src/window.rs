@@ -14,8 +14,8 @@ pub(crate) enum Command {
     Minimize,
     ToggleMaximize,
     Close,
-    Drag,
-    Resize(window::Direction),
+    BeginDrag,
+    BeginResize(window::Direction),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,7 +80,7 @@ impl WindowState {
         }
     }
 
-    pub(crate) fn command<M: 'static>(&self, command: Command) -> Task<M> {
+    pub(crate) fn execute_command<M: 'static>(&self, command: Command) -> Task<M> {
         let Some(id) = self.id else {
             return Task::none();
         };
@@ -89,8 +89,8 @@ impl WindowState {
             Command::ToggleMaximize => window::toggle_maximize(id),
             Command::Minimize => window::minimize(id, true),
             Command::Close => window::close(id),
-            Command::Drag => window::drag(id),
-            Command::Resize(direction) => window::drag_resize(id, direction),
+            Command::BeginDrag => window::drag(id),
+            Command::BeginResize(direction) => window::drag_resize(id, direction),
         }
     }
 }

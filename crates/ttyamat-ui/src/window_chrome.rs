@@ -91,7 +91,7 @@ fn resize_handle(
     interaction: mouse::Interaction,
 ) -> Element<'static, crate::window::Command> {
     mouse_area(space::Space::new().width(width).height(height))
-        .on_press(crate::window::Command::Resize(direction))
+        .on_press(crate::window::Command::BeginResize(direction))
         .interaction(interaction)
         .into()
 }

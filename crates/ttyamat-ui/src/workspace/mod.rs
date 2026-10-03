@@ -4,11 +4,11 @@ use ttyamat_terminal::{TerminalSessionError, TerminalSize};
 use crate::shortcuts;
 use crate::terminal::{
     self, TerminalPane,
-    metrics::{self, CellMetrics},
+    metrics::{self, TerminalMetrics},
 };
 use crate::window::Command;
 
-use self::session_launcher::{SessionEvent, SessionLauncher};
+use self::session_launcher::{SessionLauncher, TabSessionEvent};
 use self::tab::{Tab, TabId};
 use self::tabs::Tabs;
 
@@ -21,12 +21,12 @@ mod view;
 pub(crate) struct Workspace {
     tabs: Tabs,
     launcher: SessionLauncher,
-    metrics: CellMetrics,
-    viewport: Option<Viewport>,
+    metrics: TerminalMetrics,
+    viewport: Option<TerminalViewport>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Viewport {
+pub(crate) struct TerminalViewport {
     pub(crate) size: iced::Size,
     pub(crate) scale_factor: f32,
 }
@@ -35,9 +35,9 @@ pub(crate) struct Viewport {
 pub(crate) enum Message {
     TitleBar(title_bar::Message),
     Keyboard(keyboard::Event),
-    SessionEvent(SessionEvent),
+    TabSessionEvent(TabSessionEvent),
     Terminal(TabId, terminal::Message),
-    ViewportChanged(Viewport),
+    TerminalViewportChanged(TerminalViewport),
 }
 
 pub(crate) enum Action {
@@ -93,13 +93,16 @@ impl Workspace {
         let mut workspace = Self {
             tabs: Tabs::new(),
             launcher,
-            metrics: CellMetrics::default(),
+            metrics: TerminalMetrics::default(),
             viewport: None,
         };
-        let initial_update = workspace.open();
+        let initial_update = workspace.open_tab();
         (
             workspace,
-            Task::batch([event_task.map(Message::SessionEvent), initial_update.task]),
+            Task::batch([
+                event_task.map(Message::TabSessionEvent),
+                initial_update.task,
+            ]),
         )
     }
 
@@ -107,9 +110,9 @@ impl Workspace {
         match message {
             Message::TitleBar(message) => self.handle_title_bar(message),
             Message::Keyboard(event) => self.handle_keyboard(event),
-            Message::SessionEvent(event) => self.handle_session_event(event),
+            Message::TabSessionEvent(event) => self.handle_tab_session_event(event),
             Message::Terminal(id, message) => self.update_terminal(id, message),
-            Message::ViewportChanged(viewport) => self.set_viewport(viewport),
+            Message::TerminalViewportChanged(viewport) => self.set_viewport(viewport),
         }
     }
 
@@ -117,14 +120,14 @@ impl Workspace {
         view::view(&self.tabs, self.metrics)
     }
 
-    fn open(&mut self) -> Update {
+    fn open_tab(&mut self) -> Update {
         let id = self.tabs.reserve_id();
         let size = self.terminal_size_for_new_tab();
         match self.launcher.spawn(id, size) {
             Ok(session) => {
                 let pane = TerminalPane::new(session, size);
                 self.tabs.insert(Tab::new(id, pane));
-                self.activate(id);
+                self.select_tab(id);
             }
             Err(error) => self.report_failure(&Failure {
                 tab_id: id,
@@ -135,11 +138,11 @@ impl Workspace {
         Update::none()
     }
 
-    fn close(&mut self, id: TabId) -> Update {
-        self.close_many(std::iter::once(id))
+    fn close_tab(&mut self, id: TabId) -> Update {
+        self.close_tabs(std::iter::once(id))
     }
 
-    fn close_many(&mut self, ids: impl IntoIterator<Item = TabId>) -> Update {
+    fn close_tabs(&mut self, ids: impl IntoIterator<Item = TabId>) -> Update {
         let mut removed_any = false;
         let mut active_changed = false;
         for id in ids {
@@ -158,16 +161,16 @@ impl Workspace {
             return Update::window(Command::Close);
         };
         if active_changed {
-            self.activate(active_id);
+            self.select_tab(active_id);
         }
         Update::none()
     }
 
-    fn activate(&mut self, id: TabId) {
-        if self.tabs.activate(id)
+    fn select_tab(&mut self, id: TabId) {
+        if self.tabs.select(id)
             && let Some(tab) = self.tabs.get_mut(id)
         {
-            tab.activate();
+            tab.refresh();
         }
     }
 
@@ -184,19 +187,19 @@ impl Workspace {
 
     fn execute_shortcut(&mut self, action: shortcuts::Action) -> Update {
         match action {
-            shortcuts::Action::OpenTab => self.open(),
+            shortcuts::Action::OpenTab => self.open_tab(),
             shortcuts::Action::CloseActiveTab => match self.tabs.active_id() {
-                Some(id) => self.close(id),
+                Some(id) => self.close_tab(id),
                 None => Update::none(),
             },
-            shortcuts::Action::NextTab | shortcuts::Action::PreviousTab => {
-                let candidate = if action == shortcuts::Action::NextTab {
+            shortcuts::Action::SelectNextTab | shortcuts::Action::SelectPreviousTab => {
+                let candidate = if action == shortcuts::Action::SelectNextTab {
                     self.tabs.next_candidate_id()
                 } else {
                     self.tabs.previous_candidate_id()
                 };
                 if let Some(id) = candidate {
-                    self.activate(id);
+                    self.select_tab(id);
                 }
                 Update::none()
             }
@@ -208,13 +211,13 @@ impl Workspace {
             title_bar::Message::MinimizeWindow => Update::window(Command::Minimize),
             title_bar::Message::ToggleMaximize => Update::window(Command::ToggleMaximize),
             title_bar::Message::CloseWindow => Update::window(Command::Close),
-            title_bar::Message::StartWindowDrag => Update::window(Command::Drag),
-            title_bar::Message::NewTabPressed => self.open(),
-            title_bar::Message::TabPressed(id) => {
-                self.activate(id);
+            title_bar::Message::BeginWindowDrag => Update::window(Command::BeginDrag),
+            title_bar::Message::OpenTab => self.open_tab(),
+            title_bar::Message::SelectTab(id) => {
+                self.select_tab(id);
                 Update::none()
             }
-            title_bar::Message::TabClosePressed(id) => self.close(id),
+            title_bar::Message::CloseTab(id) => self.close_tab(id),
             title_bar::Message::TabHoverChanged { id, is_hovered } => {
                 self.tabs.set_hovered(id, is_hovered);
                 Update::none()
@@ -222,7 +225,7 @@ impl Workspace {
         }
     }
 
-    fn handle_session_event(&mut self, event: SessionEvent) -> Update {
+    fn handle_tab_session_event(&mut self, event: TabSessionEvent) -> Update {
         self.update_terminal(event.tab_id, terminal::Message::Event(event.event))
     }
 
@@ -242,24 +245,23 @@ impl Workspace {
                 // TODO(notification): Surface terminal bells without blocking the UI thread.
                 Update::none()
             }
-            tab::Outcome::Exited(status) => {
-                if let Some(status) = status {
-                    eprintln!("terminal tab {} exited: {status}", id.0);
-                }
-                self.close(id)
+            tab::Outcome::ChildExited(status) => {
+                eprintln!("terminal tab {} exited: {status}", id.0);
+                self.close_tab(id)
             }
+            tab::Outcome::ExitRequested => self.close_tab(id),
             tab::Outcome::Failed { operation, error } => {
                 self.report_failure(&Failure {
                     tab_id: id,
                     operation: operation.into(),
                     error,
                 });
-                self.close(id)
+                self.close_tab(id)
             }
         }
     }
 
-    fn set_viewport(&mut self, viewport: Viewport) -> Update {
+    fn set_viewport(&mut self, viewport: TerminalViewport) -> Update {
         self.viewport = Some(viewport);
         match metrics::size_for_viewport(viewport.size, viewport.scale_factor, self.metrics) {
             Some(size) => self.resize_all(size),
@@ -292,9 +294,9 @@ impl Workspace {
         for failure in &failures {
             self.report_failure(failure);
         }
-        let update = self.close_many(failures.into_iter().map(|failure| failure.tab_id));
+        let update = self.close_tabs(failures.into_iter().map(|failure| failure.tab_id));
         if let Some(id) = self.tabs.active_id() {
-            self.activate(id);
+            self.select_tab(id);
         }
         update
     }

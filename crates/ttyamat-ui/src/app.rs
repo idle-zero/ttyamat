@@ -3,7 +3,7 @@ use iced::{Element, Fill, Subscription, Task, Theme, keyboard, window};
 
 use crate::window::{Change, Command, WindowState};
 use crate::window_chrome;
-use crate::workspace::{self, Viewport, Workspace};
+use crate::workspace::{self, TerminalViewport, Workspace};
 
 struct App {
     window: WindowState,
@@ -45,7 +45,7 @@ impl App {
                 event,
                 status,
             } => self.handle_keyboard_event(window_id, event, status),
-            Message::WindowCommand(command) => self.window.command(command),
+            Message::WindowCommand(command) => self.window.execute_command(command),
             Message::Workspace(message) => {
                 let update = self.workspace.update(message);
                 self.apply_workspace_update(update)
@@ -58,13 +58,13 @@ impl App {
         if change == Change::GeometryChanged
             && let Some(size) = self.window.size()
         {
-            let viewport = Viewport {
+            let viewport = TerminalViewport {
                 size: window_chrome::terminal_viewport(size),
                 scale_factor: self.window.scale_factor(),
             };
             let update = self
                 .workspace
-                .update(workspace::Message::ViewportChanged(viewport));
+                .update(workspace::Message::TerminalViewportChanged(viewport));
             return self.apply_workspace_update(update);
         }
 
@@ -87,7 +87,7 @@ impl App {
 
     fn apply_workspace_update(&self, update: workspace::Update) -> Task<Message> {
         let window_task = match update.action {
-            Some(workspace::Action::Window(command)) => self.window.command(command),
+            Some(workspace::Action::Window(command)) => self.window.execute_command(command),
             None => Task::none(),
         };
 

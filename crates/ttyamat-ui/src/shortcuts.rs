@@ -4,8 +4,8 @@ use iced::keyboard;
 pub(crate) enum Action {
     OpenTab,
     CloseActiveTab,
-    NextTab,
-    PreviousTab,
+    SelectNextTab,
+    SelectPreviousTab,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,9 +51,9 @@ fn binding(event: &iced::keyboard::Event) -> Option<Action> {
     }
 
     if *modifiers == keyboard::Modifiers::CTRL {
-        Some(Action::NextTab)
+        Some(Action::SelectNextTab)
     } else if *modifiers == (keyboard::Modifiers::CTRL | keyboard::Modifiers::SHIFT) {
-        Some(Action::PreviousTab)
+        Some(Action::SelectPreviousTab)
     } else {
         None
     }

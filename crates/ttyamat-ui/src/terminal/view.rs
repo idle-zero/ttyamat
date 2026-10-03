@@ -3,26 +3,26 @@ use iced::widget::{Column, container, stack, text};
 use iced::{Element, Fill, Font, Pixels, Theme};
 use ttyamat_terminal::{TerminalCursorShape, TerminalFrame};
 
-use super::metrics::{CellMetrics, HORIZONTAL_PADDING, VERTICAL_PADDING};
+use super::metrics::{HORIZONTAL_PADDING, TerminalMetrics, VERTICAL_PADDING};
 use crate::style;
 
-pub(super) fn view(frame: &TerminalFrame, metrics: CellMetrics) -> Element<'_, super::Message> {
+pub(super) fn view(frame: &TerminalFrame, metrics: TerminalMetrics) -> Element<'_, super::Message> {
     let rows = frame.rows().iter().map(|row| {
         text(row)
             .font(Font::MONOSPACE)
             .size(metrics.font_size)
-            .line_height(LineHeight::Absolute(Pixels(metrics.height)))
+            .line_height(LineHeight::Absolute(Pixels(metrics.cell_height)))
             .shaping(Shaping::Basic)
             .wrapping(Wrapping::None)
             .width(Fill)
-            .height(metrics.height)
+            .height(metrics.cell_height)
             .into()
     });
     let content = Column::with_children(rows).width(Fill).height(Fill);
     let cursor = text(cursor_overlay(frame))
         .font(Font::MONOSPACE)
         .size(metrics.font_size)
-        .line_height(LineHeight::Absolute(Pixels(metrics.height)))
+        .line_height(LineHeight::Absolute(Pixels(metrics.cell_height)))
         .shaping(Shaping::Basic)
         .wrapping(Wrapping::None)
         .width(Fill)

@@ -30,7 +30,8 @@ pub(crate) enum Outcome {
     None,
     TitleChanged(Option<String>),
     Bell,
-    Exited(Option<std::process::ExitStatus>),
+    ChildExited(std::process::ExitStatus),
+    ExitRequested,
     Failed {
         operation: Operation,
         error: TerminalSessionError,
@@ -58,12 +59,12 @@ impl TerminalPane {
     }
 
     /// Render the displayed snapshot without reading or locking the backend session.
-    pub(crate) fn view(&self, metrics: metrics::CellMetrics) -> iced::Element<'_, Message> {
+    pub(crate) fn view(&self, metrics: metrics::TerminalMetrics) -> iced::Element<'_, Message> {
         view::view(&self.frame, metrics)
     }
 
-    /// Consume pending damage when visible or activated; clean panes do no work.
-    pub(crate) fn refresh(&mut self) {
+    /// Consume pending frame damage when visible or selected; clean panes do no work.
+    pub(crate) fn refresh_frame(&mut self) {
         if !self.dirty {
             return;
         }
@@ -82,14 +83,14 @@ impl TerminalPane {
             TerminalEvent::Wakeup => {
                 self.dirty = true;
                 if visible {
-                    self.refresh();
+                    self.refresh_frame();
                 }
                 Outcome::None
             }
             TerminalEvent::TitleChanged(title) => Outcome::TitleChanged(title),
             TerminalEvent::Bell => Outcome::Bell,
-            TerminalEvent::ChildExited(status) => Outcome::Exited(Some(status)),
-            TerminalEvent::ExitRequested => Outcome::Exited(None),
+            TerminalEvent::ChildExited(status) => Outcome::ChildExited(status),
+            TerminalEvent::ExitRequested => Outcome::ExitRequested,
         }
     }
 
@@ -119,7 +120,7 @@ impl TerminalPane {
                 self.size = size;
                 self.dirty = true;
                 if visible {
-                    self.refresh();
+                    self.refresh_frame();
                 }
                 Outcome::None
             }
