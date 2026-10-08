@@ -1,5 +1,4 @@
 use iced::Element;
-use ttyamat_terminal::TerminalSessionError;
 
 use crate::terminal::{self, TerminalPane, metrics::TerminalMetrics};
 
@@ -11,17 +10,6 @@ pub(super) struct Tab {
     title: String,
     fallback_title: String,
     terminal: TerminalPane,
-}
-
-pub(super) enum Outcome {
-    None,
-    Bell,
-    ChildExited(std::process::ExitStatus),
-    ExitRequested,
-    Failed {
-        operation: terminal::Operation,
-        error: TerminalSessionError,
-    },
 }
 
 impl Tab {
@@ -47,18 +35,12 @@ impl Tab {
         self.terminal.refresh_frame();
     }
 
-    pub(super) fn update(&mut self, message: terminal::Message, visible: bool) -> Outcome {
-        match self.terminal.update(message, visible) {
-            terminal::Outcome::None => Outcome::None,
-            terminal::Outcome::TitleChanged(title) => {
-                self.title = title.unwrap_or_else(|| self.fallback_title.clone());
-                Outcome::None
-            }
-            terminal::Outcome::Bell => Outcome::Bell,
-            terminal::Outcome::ChildExited(status) => Outcome::ChildExited(status),
-            terminal::Outcome::ExitRequested => Outcome::ExitRequested,
-            terminal::Outcome::Failed { operation, error } => Outcome::Failed { operation, error },
-        }
+    pub(super) fn terminal_mut(&mut self) -> &mut TerminalPane {
+        &mut self.terminal
+    }
+
+    pub(super) fn set_title(&mut self, title: Option<String>) {
+        self.title = title.unwrap_or_else(|| self.fallback_title.clone());
     }
 
     pub(super) fn view(&self, metrics: TerminalMetrics) -> Element<'_, terminal::Message> {

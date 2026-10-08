@@ -234,23 +234,29 @@ impl Workspace {
         let Some(tab) = self.tabs.get_mut(id) else {
             return Update::none();
         };
-        let outcome = tab.update(message, visible);
+        let outcome = tab.terminal_mut().update(message, visible);
         self.apply_terminal_outcome(id, outcome)
     }
 
-    fn apply_terminal_outcome(&mut self, id: TabId, outcome: tab::Outcome) -> Update {
+    fn apply_terminal_outcome(&mut self, id: TabId, outcome: terminal::Outcome) -> Update {
         match outcome {
-            tab::Outcome::None => Update::none(),
-            tab::Outcome::Bell => {
+            terminal::Outcome::None => Update::none(),
+            terminal::Outcome::TitleChanged(title) => {
+                if let Some(tab) = self.tabs.get_mut(id) {
+                    tab.set_title(title);
+                }
+                Update::none()
+            }
+            terminal::Outcome::Bell => {
                 // TODO(notification): Surface terminal bells without blocking the UI thread.
                 Update::none()
             }
-            tab::Outcome::ChildExited(status) => {
+            terminal::Outcome::ChildExited(status) => {
                 eprintln!("terminal tab {} exited: {status}", id.0);
                 self.close_tab(id)
             }
-            tab::Outcome::ExitRequested => self.close_tab(id),
-            tab::Outcome::Failed { operation, error } => {
+            terminal::Outcome::ExitRequested => self.close_tab(id),
+            terminal::Outcome::Failed { operation, error } => {
                 self.report_failure(&Failure {
                     tab_id: id,
                     operation: operation.into(),
@@ -280,8 +286,9 @@ impl Workspace {
     fn resize_all(&mut self, size: TerminalSize) -> Update {
         let mut failures = Vec::new();
         for tab in self.tabs.items_mut() {
-            if let tab::Outcome::Failed { operation, error } =
-                tab.update(terminal::Message::Resize(size), false)
+            if let terminal::Outcome::Failed { operation, error } = tab
+                .terminal_mut()
+                .update(terminal::Message::Resize(size), false)
             {
                 failures.push(Failure {
                     tab_id: tab.id(),
