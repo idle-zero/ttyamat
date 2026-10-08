@@ -11,7 +11,7 @@ pub(super) struct Removal {
     pub(super) tab: Tab,
     pub(super) active_changed: bool,
 }
-
+// Todo: Maybe think about better name for this and Tab they are not just the "tab element"
 impl Tabs {
     pub(super) fn new() -> Self {
         Self {
