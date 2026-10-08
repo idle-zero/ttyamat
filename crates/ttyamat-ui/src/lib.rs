@@ -1,8 +1,9 @@
 mod app;
+mod shortcuts;
 mod style;
-mod tab;
-mod terminal_input;
-mod terminal_view;
-mod title_bar;
+mod terminal;
+mod window;
+mod window_chrome;
+mod workspace;
 
 pub use app::run;
