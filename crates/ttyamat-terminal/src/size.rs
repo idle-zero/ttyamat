@@ -36,3 +36,21 @@ impl TerminalSize {
         self.cell_height
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::TerminalSize;
+
+    #[test]
+    fn rejects_one_column() {
+        assert!(
+            TerminalSize::new(1, 24, 8, 16).is_none(),
+            "a one-column grid cannot safely accept wide characters"
+        )
+    }
+
+    #[test]
+    fn accepts_minimum_columns() {
+        assert!(TerminalSize::new(2, 24, 8, 16).is_some());
+    }
+}
