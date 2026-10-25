@@ -75,3 +75,18 @@ pub(crate) fn size_for_viewport(
 fn clamp_to_u16(value: f32) -> u16 {
     value.clamp(1.0, f32::from(u16::MAX)) as u16
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn narrow_viewport_keeps_two_columns() {
+        let size = size_for_viewport(Size::new(28.0, 32.0), 1.0, TerminalMetrics::default())
+            .expect("a usable narrow viewport should clamp to the minimum");
+        assert_eq!(size.columns(), 2);
+        assert_eq!(size.lines(), 1);
+        assert_eq!(size.cell_width(), 8);
+        assert_eq!(size.cell_height(), 16);
+    }
+}
