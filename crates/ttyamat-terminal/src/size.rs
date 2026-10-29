@@ -7,8 +7,18 @@ pub struct TerminalSize {
 }
 
 impl TerminalSize {
+    pub const MIN_COLUMNS: u16 = 2;
+    pub const MIN_LINES: u16 = 1;
+
+    pub const MAX_COLUMNS: u16 = i16::MAX as u16;
+    pub const MAX_LINES: u16 = i16::MAX as u16;
+
     pub fn new(columns: u16, lines: u16, cell_width: u16, cell_height: u16) -> Option<Self> {
-        if columns == 0 || lines == 0 || cell_width == 0 || cell_height == 0 {
+        if !(Self::MIN_COLUMNS..=Self::MAX_COLUMNS).contains(&columns)
+            || !(Self::MIN_LINES..=Self::MAX_LINES).contains(&lines)
+            || cell_width == 0
+            || cell_height == 0
+        {
             return None;
         }
 
@@ -34,5 +44,23 @@ impl TerminalSize {
 
     pub fn cell_height(&self) -> u16 {
         self.cell_height
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TerminalSize;
+
+    #[test]
+    fn rejects_one_column() {
+        assert!(
+            TerminalSize::new(1, 24, 8, 16).is_none(),
+            "a one-column grid cannot safely accept wide characters"
+        )
+    }
+
+    #[test]
+    fn accepts_minimum_columns() {
+        assert!(TerminalSize::new(2, 24, 8, 16).is_some());
     }
 }

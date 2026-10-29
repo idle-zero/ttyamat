@@ -38,10 +38,10 @@ pub(crate) fn initial_size(metrics: TerminalMetrics) -> TerminalSize {
     TerminalSize::new(
         INITIAL_TERMINAL_COLUMNS,
         INITIAL_TERMINAL_LINES,
-        clamp_to_u16(metrics.cell_width.round()),
-        clamp_to_u16(metrics.cell_height.round()),
+        clamp_cell_pixels(metrics.cell_width.round()),
+        clamp_cell_pixels(metrics.cell_height.round()),
     )
-    .expect("initial terminal dimensions must be non-zero")
+    .expect("initial terminal dimensions must be valid")
 }
 
 pub(crate) fn size_for_viewport(
@@ -64,14 +64,35 @@ pub(crate) fn size_for_viewport(
         return None;
     }
 
-    let columns = clamp_to_u16((usable_width / metrics.cell_width).floor());
-    let lines = clamp_to_u16((usable_height / metrics.cell_height).floor());
-    let physical_cell_width = clamp_to_u16((metrics.cell_width * scale_factor).round());
-    let physical_cell_height = clamp_to_u16((metrics.cell_height * scale_factor).round());
+    let columns = (usable_width / metrics.cell_width).floor().clamp(
+        f32::from(TerminalSize::MIN_COLUMNS),
+        f32::from(TerminalSize::MAX_COLUMNS),
+    ) as u16;
+    let lines = (usable_height / metrics.cell_height).floor().clamp(
+        f32::from(TerminalSize::MIN_LINES),
+        f32::from(TerminalSize::MAX_LINES),
+    ) as u16;
+    let physical_cell_width = clamp_cell_pixels((metrics.cell_width * scale_factor).round());
+    let physical_cell_height = clamp_cell_pixels((metrics.cell_height * scale_factor).round());
 
     TerminalSize::new(columns, lines, physical_cell_width, physical_cell_height)
 }
 
-fn clamp_to_u16(value: f32) -> u16 {
+fn clamp_cell_pixels(value: f32) -> u16 {
     value.clamp(1.0, f32::from(u16::MAX)) as u16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn narrow_viewport_keeps_two_columns() {
+        let size = size_for_viewport(Size::new(28.0, 32.0), 1.0, TerminalMetrics::default())
+            .expect("a usable narrow viewport should clamp to the minimum");
+        assert_eq!(size.columns(), 2);
+        assert_eq!(size.lines(), 1);
+        assert_eq!(size.cell_width(), 8);
+        assert_eq!(size.cell_height(), 16);
+    }
 }

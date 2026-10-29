@@ -33,6 +33,7 @@ pub(super) fn view(frame: &TerminalFrame, metrics: TerminalMetrics) -> Element<'
         .width(Fill)
         .height(Fill)
         .padding([VERTICAL_PADDING, HORIZONTAL_PADDING])
+        .clip(true)
         .style(terminal_style)
         .into()
 }

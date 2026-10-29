@@ -55,6 +55,16 @@ fn alacritty_window_size(size: TerminalSize) -> WindowSize {
     }
 }
 
+fn send_input(sender: &EventLoopSender, bytes: Vec<u8>) -> Result<(), TerminalSessionError> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+
+    sender
+        .send(Msg::Input(Cow::Owned(bytes)))
+        .map_err(|error| TerminalSessionError::EventLoop(error.to_string()))
+}
+
 #[derive(Clone)]
 struct EventProxy {
     on_event: Arc<dyn Fn(TerminalEvent) + Send + Sync>,
@@ -113,7 +123,7 @@ impl EventListener for EventProxy {
             }
             Event::PtyWrite(text) => {
                 if let Some(sender) = self.pty_sender.get() {
-                    let _ = sender.send(Msg::Input(Cow::Owned(text.into_bytes())));
+                    let _ = send_input(sender, text.into_bytes());
                 }
             }
             _ => {}
@@ -192,7 +202,7 @@ impl TerminalSession {
     }
 
     pub fn write(&self, bytes: Vec<u8>) -> Result<(), TerminalSessionError> {
-        self.send(Msg::Input(Cow::Owned(bytes)))
+        send_input(&self.sender, bytes)
     }
 
     pub fn resize(&self, size: TerminalSize) -> Result<(), TerminalSessionError> {
