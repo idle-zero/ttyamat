@@ -7,8 +7,18 @@ pub struct TerminalSize {
 }
 
 impl TerminalSize {
+    pub const MIN_COLUMNS: u16 = 2;
+    pub const MIN_LINES: u16 = 1;
+
+    pub const MAX_COLUMNS: u16 = i16::MAX as u16;
+    pub const MAX_LINES: u16 = i16::MAX as u16;
+
     pub fn new(columns: u16, lines: u16, cell_width: u16, cell_height: u16) -> Option<Self> {
-        if columns == 0 || lines == 0 || cell_width == 0 || cell_height == 0 {
+        if !(Self::MIN_COLUMNS..=Self::MAX_COLUMNS).contains(&columns)
+            || !(Self::MIN_LINES..=Self::MAX_LINES).contains(&lines)
+            || cell_width == 0
+            || cell_height == 0
+        {
             return None;
         }
 
